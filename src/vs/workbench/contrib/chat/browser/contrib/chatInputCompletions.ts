@@ -254,7 +254,7 @@ class AgentCompletions extends Disposable {
 								detail: c.description,
 								filterText: getFilterText(agent, c.name),
 								commitCharacters: [' '],
-								insertText: label,
+								insertText: label + ' ',
 								range: new Range(1, 1, 1, 1),
 								kind: CompletionItemKind.Text, // The icons are disabled here anyway
 								sortText: `x${chatAgentLeader}${agent.name}${c.name}`,
@@ -533,6 +533,7 @@ class VariableCompletions extends Disposable {
 			provideCompletionItems: async (model: ITextModel, position: Position, _context: CompletionContext, _token: CancellationToken) => {
 				const locations = new Set<ChatAgentLocation>();
 				locations.add(ChatAgentLocation.Panel);
+				locations.add(ChatAgentLocation.EditingSession);
 
 				for (const value of Object.values(ChatAgentLocation)) {
 					if (typeof value === 'string' && configService.getValue<boolean>(`chat.experimental.variables.${value}`)) {
