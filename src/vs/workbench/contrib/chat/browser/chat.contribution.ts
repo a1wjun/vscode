@@ -54,7 +54,7 @@ import { IChatAccessibilityService, IChatCodeBlockContextProviderService, IChatW
 import { ChatAccessibilityService } from './chatAccessibilityService.js';
 import './chatAttachmentModel.js';
 import { ChatMarkdownAnchorService, IChatMarkdownAnchorService } from './chatContentParts/chatMarkdownAnchorService.js';
-import { ChatEditingService } from './chatEditing/chatEditingService.js';
+import { ChatEditingService } from './chatEditing/chatEditingServiceImpl.js';
 import { ChatEditor, IChatEditorOptions } from './chatEditor.js';
 import { registerChatEditorActions } from './chatEditorActions.js';
 import { ChatEditorController } from './chatEditorController.js';
@@ -79,10 +79,11 @@ import { ChatGettingStartedContribution } from './actions/chatGettingStarted.js'
 import { Extensions, IConfigurationMigrationRegistry } from '../../../common/configuration.js';
 import { ChatRelatedFilesContribution } from './contrib/chatInputRelatedFilesContrib.js';
 import { ChatQuotasService, ChatQuotasStatusBarEntry, IChatQuotasService } from './chatQuotasService.js';
-import { BuiltinToolsContribution } from './tools/tools.js';
 import { ChatSetupContribution } from './chatSetup.js';
 import { ChatEditorOverlayController } from './chatEditorOverlay.js';
 import '../common/promptSyntax/languageFeatures/promptLinkProvider.js';
+import { PromptFilesConfig } from '../common/promptSyntax/config.js';
+import { BuiltinToolsContribution } from '../common/tools/tools.js';
 
 // Register configuration
 const configurationRegistry = Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration);
@@ -119,7 +120,6 @@ configurationRegistry.registerConfiguration({
 		},
 		'chat.commandCenter.enabled': {
 			type: 'boolean',
-			tags: ['preview'],
 			markdownDescription: nls.localize('chat.commandCenter.enabled', "Controls whether the command center shows a menu for actions to control Copilot (requires {0}).", '`#window.commandCenter#`'),
 			default: true
 		},
@@ -127,6 +127,8 @@ configurationRegistry.registerConfiguration({
 			type: 'number',
 			markdownDescription: nls.localize('chat.editing.autoAcceptDelay', "Delay after which changes made by chat are automatically accepted. Values are in seconds, `0` means disabled and `100` seconds is the maximum."),
 			default: 0,
+			minimum: 0,
+			maximum: 100
 		},
 		'chat.editing.confirmEditRequestRemoval': {
 			type: 'boolean',
@@ -150,6 +152,18 @@ configurationRegistry.registerConfiguration({
 			type: 'boolean',
 			description: nls.localize('chat.detectParticipant.enabled', "Enables chat participant autodetection for panel chat."),
 			default: true
+		},
+		[PromptFilesConfig.CONFIG_KEY]: {
+			type: ['string', 'array', 'object', 'boolean', 'null'],
+			title: nls.localize('chat.promptFiles.setting.title', "Prompt Files"),
+			markdownDescription: nls.localize(
+				'chat.promptFiles.setting.markdownDescription',
+				"Enable support for attaching reusable prompt files (`*{0}`) for Chat, Edits, and Inline Chat sessions. [Learn More]({1}).",
+				'.prompt.md',
+				PromptFilesConfig.DOCUMENTATION_URL,
+			),
+			default: null,
+			tags: ['experimental'],
 		},
 	}
 });
