@@ -14,7 +14,7 @@ import { Model } from './model';
 import { GitResourceGroup, Repository, Resource, ResourceGroupType } from './repository';
 import { DiffEditorSelectionHunkToolbarContext, applyLineChanges, getIndexDiffInformation, getModifiedRange, getWorkingTreeDiffInformation, intersectDiffWithRange, invertLineChange, toLineChanges, toLineRanges } from './staging';
 import { fromGitUri, toGitUri, isGitUri, toMergeUris, toMultiFileDiffEditorUris } from './uri';
-import { DiagnosticSeverityConfig, dispose, getCommitShortHash, grep, isDefined, isDescendant, isWindows, pathEquals, relativePath, toDiagnosticSeverity, truncate } from './util';
+import { DiagnosticSeverityConfig, dispose, getCommitShortHash, grep, isDefined, isDescendant, isRemote, isWindows, pathEquals, relativePath, toDiagnosticSeverity, truncate } from './util';
 import { GitTimelineItem } from './timelineProvider';
 import { ApiRepository } from './api/api1';
 import { getRemoteSourceActions, pickRemoteSource } from './remoteSource';
@@ -620,7 +620,6 @@ class CommandErrorOutputTextDocumentContentProvider implements TextDocumentConte
 async function evaluateDiagnosticsCommitHook(repository: Repository, options: CommitOptions): Promise<boolean> {
 	const config = workspace.getConfiguration('git', Uri.file(repository.root));
 	const enabled = config.get<boolean>('diagnosticsCommitHook.Enabled', false) === true;
-	const ignoredSources = config.get<string[]>('diagnosticsCommitHook.IgnoredSources', []);
 	const sourceSeverity = config.get<Record<string, DiagnosticSeverityConfig>>('diagnosticsCommitHook.Sources', { '*': 'error' });
 
 	if (!enabled) {
@@ -652,7 +651,7 @@ async function evaluateDiagnosticsCommitHook(repository: Repository, options: Co
 		// Diagnostics
 		return diags.find(d => {
 			// No source or ignored source
-			if (!d.source || ignoredSources.includes(d.source)) {
+			if (!d.source || (Object.keys(sourceSeverity).includes(d.source) && sourceSeverity[d.source] === 'none')) {
 				return false;
 			}
 
@@ -2154,7 +2153,7 @@ export class CommandCenter {
 
 	private getDiscardUntrackedChangesDialogDetails(resources: Resource[]): [string, string, string] {
 		const config = workspace.getConfiguration('git');
-		const untrackedChangesSoftDelete = config.get<boolean>('untrackedChangesSoftDelete', true) === true;
+		const untrackedChangesSoftDelete = config.get<boolean>('untrackedChangesSoftDelete', true) && !isRemote;
 
 		const messageWarning = !untrackedChangesSoftDelete
 			? resources.length === 1
