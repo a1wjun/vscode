@@ -122,7 +122,10 @@ export class ChatStatusBarEntry extends Disposable implements IWorkbenchContribu
 	}
 
 	private async create(): Promise<void> {
-		if (this.configurationService.getValue<boolean>(ChatStatusBarEntry.SETTING) === true) {
+		const hidden = this.contextKeyService.getContextKeyValue<boolean>(ChatContextKeys.Setup.hidden.key) === true;
+		const disabled = this.configurationService.getValue<boolean>(ChatStatusBarEntry.SETTING) === false;
+
+		if (!hidden && !disabled) {
 			this.entry ||= this.statusbarService.addEntry(this.getEntryProps(), ChatStatusBarEntry.ID, StatusbarAlignment.RIGHT, { location: { id: 'status.editor.mode', priority: 100.1 }, alignment: StatusbarAlignment.RIGHT });
 			this.statusbarService.updateEntryVisibility(`${this.productService.defaultChatAgent?.extensionId}.status`, false); // TODO@bpasero: remove this eventually
 		} else {
@@ -219,7 +222,7 @@ export class ChatStatusBarEntry extends Disposable implements IWorkbenchContribu
 
 function isNewUser(contextKeyService: IContextKeyService, chatEntitlementService: IChatEntitlementService): boolean {
 	return contextKeyService.getContextKeyValue<boolean>(ChatContextKeys.Setup.installed.key) === false ||	// copilot not installed
-		chatEntitlementService.entitlement === ChatEntitlement.Available;								// not yet signed up to copilot
+		chatEntitlementService.entitlement === ChatEntitlement.Available;									// not yet signed up to copilot
 }
 
 class ChatStatusDashboard extends Disposable {
@@ -288,7 +291,7 @@ class ChatStatusDashboard extends Disposable {
 			this.element.appendChild($('div.description', undefined, localize('limitQuota', "Limits will reset on {0}.", this.dateFormatter.value.format(quotaResetDate))));
 
 			if (chatQuotaExceeded || completionsQuotaExceeded) {
-				const upgradePlanButton = disposables.add(new Button(this.element, { ...defaultButtonStyles }));
+				const upgradePlanButton = disposables.add(new Button(this.element, { ...defaultButtonStyles, secondary: true }));
 				upgradePlanButton.label = localize('upgradeToCopilotPro', "Upgrade to Copilot Pro");
 				disposables.add(upgradePlanButton.onDidClick(() => this.runCommandAndClose('workbench.action.chat.upgradePlan')));
 			}

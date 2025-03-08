@@ -5,7 +5,6 @@
 
 import { Codicon } from '../../../../../base/common/codicons.js';
 import { KeyCode, KeyMod } from '../../../../../base/common/keyCodes.js';
-import { URI } from '../../../../../base/common/uri.js';
 import { ServicesAccessor } from '../../../../../editor/browser/editorExtensions.js';
 import { localize, localize2 } from '../../../../../nls.js';
 import { Action2, MenuId, MenuRegistry, registerAction2 } from '../../../../../platform/actions/common/actions.js';
@@ -108,6 +107,7 @@ export class ToggleAgentModeAction extends EditingSessionAction {
 			f1: true,
 			category: CHAT_CATEGORY,
 			precondition: ContextKeyExpr.and(
+				ChatContextKeys.enabled,
 				ChatContextKeys.Editing.hasToolsAgent,
 				ChatContextKeys.requestInProgress.negate()),
 			toggled: {
@@ -376,7 +376,7 @@ export class ChatSubmitSecondaryAgentAction extends Action2 {
 	}
 }
 
-class SendToChatEditingAction extends EditingSessionAction {
+class SendToChatEditingAction extends Action2 {
 	constructor() {
 		const precondition = ContextKeyExpr.and(
 			// if the input has prompt instructions attached, allow submitting requests even
@@ -416,14 +416,17 @@ class SendToChatEditingAction extends EditingSessionAction {
 		});
 	}
 
-	async runEditingSessionAction(accessor: ServicesAccessor, currentEditingSession: IChatEditingSession, widget: IChatWidget, ...args: any[]) {
+	async run(accessor: ServicesAccessor, ...args: any[]) {
 		if (!accessor.get(IChatAgentService).getDefaultAgent(ChatAgentLocation.EditingSession)) {
 			return;
 		}
 
+		const widget = args.length > 0 && args[0].widget ? args[0].widget : accessor.get(IChatWidgetService).lastFocusedWidget;
+
 		const viewsService = accessor.get(IViewsService);
 		const dialogService = accessor.get(IDialogService);
 		const chatEditingService = accessor.get(IChatEditingService);
+		const currentEditingSession: IChatEditingSession | undefined = chatEditingService.editingSessionsObs.get().at(0);
 
 		const currentEditCount = currentEditingSession?.entries.get().length;
 		if (currentEditCount) {
@@ -447,16 +450,12 @@ class SendToChatEditingAction extends EditingSessionAction {
 		if (!editingWidget.viewModel?.sessionId) {
 			return;
 		}
-		const chatEditingSession = chatEditingService.getEditingSession(editingWidget.viewModel.sessionId);
+		const chatEditingSession = await chatEditingService.startOrContinueGlobalEditingSession(editingWidget.viewModel.sessionId);
 		if (!chatEditingSession) {
 			return;
 		}
 		for (const attachment of widget.attachmentModel.attachments) {
-			if (attachment.isFile && URI.isUri(attachment.value)) {
-				chatEditingSession.addFileToWorkingSet(attachment.value);
-			} else {
-				editingWidget.attachmentModel.addContext(attachment);
-			}
+			editingWidget.attachmentModel.addContext(attachment);
 		}
 
 		editingWidget.setInput(widget.getInput());
