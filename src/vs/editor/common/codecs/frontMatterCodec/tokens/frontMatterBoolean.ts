@@ -57,6 +57,14 @@ export class FrontMatterBoolean extends FrontMatterValueToken<'boolean', readonl
 		}
 	}
 
+	public override equals(other: BaseToken): other is typeof this {
+		if (super.equals(other) === false) {
+			return false;
+		}
+
+		return this.value === other.value;
+	}
+
 	public override toString(): string {
 		return `front-matter-boolean(${this.shortText()})${this.range}`;
 	}
@@ -65,9 +73,9 @@ export class FrontMatterBoolean extends FrontMatterValueToken<'boolean', readonl
 /**
  * Try to convert a {@link Word} token to a `boolean` value.
  */
-const asBoolean = (
+export function asBoolean(
 	token: Word,
-): boolean | null => {
+): boolean | null {
 	if (token.text.toLowerCase() === 'true') {
 		return true;
 	}
@@ -77,4 +85,4 @@ const asBoolean = (
 	}
 
 	return null;
-};
+}
