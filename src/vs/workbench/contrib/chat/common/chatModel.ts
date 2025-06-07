@@ -19,7 +19,7 @@ import { URI, UriComponents, UriDto, isUriComponents } from '../../../../base/co
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { IRange } from '../../../../editor/common/core/range.js';
 import { IOffsetRange, OffsetRange } from '../../../../editor/common/core/ranges/offsetRange.js';
-import { Location, SymbolKind, TextEdit } from '../../../../editor/common/languages.js';
+import { Location, SymbolKind, TextEdit, isLocation } from '../../../../editor/common/languages.js';
 import { localize } from '../../../../nls.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IMarker, MarkerSeverity } from '../../../../platform/markers/common/markers.js';
@@ -33,19 +33,19 @@ import { IChatRequestVariableValue } from './chatVariables.js';
 import { ChatAgentLocation, ChatMode } from './constants.js';
 
 interface IBaseChatRequestVariableEntry {
-	id: string;
-	fullName?: string;
-	icon?: ThemeIcon;
-	name: string;
-	modelDescription?: string;
+	readonly id: string;
+	readonly fullName?: string;
+	readonly icon?: ThemeIcon;
+	readonly name: string;
+	readonly modelDescription?: string;
 
 	/**
 	 * The offset-range in the prompt. This means this entry has been explicitly typed out
 	 * by the user.
 	 */
-	range?: IOffsetRange;
-	value: IChatRequestVariableValue;
-	references?: IChatContentReference[];
+	readonly range?: IOffsetRange;
+	readonly value: IChatRequestVariableValue;
+	readonly references?: IChatContentReference[];
 
 	omittedState?: OmittedState;
 }
@@ -72,26 +72,31 @@ export interface IChatRequestToolEntry extends IBaseChatRequestVariableEntry {
 	readonly kind: 'tool';
 }
 
+export interface IChatRequestToolSetEntry extends IBaseChatRequestVariableEntry {
+	readonly kind: 'toolset';
+	readonly value: IChatRequestToolEntry[];
+}
+
 export interface IChatRequestImplicitVariableEntry extends IBaseChatRequestVariableEntry {
 	readonly kind: 'implicit';
 	readonly isFile: true;
 	readonly value: URI | Location | undefined;
 	readonly isSelection: boolean;
 	readonly isPromptFile: boolean;
-	enabled: boolean;
+	readonly enabled: boolean;
 }
 
 export interface IChatRequestPasteVariableEntry extends IBaseChatRequestVariableEntry {
 	readonly kind: 'paste';
-	code: string;
-	language: string;
-	pastedLines: string;
+	readonly code: string;
+	readonly language: string;
+	readonly pastedLines: string;
 
 	// This is only used for old serialized data and should be removed once we no longer support it
-	fileName: string;
+	readonly fileName: string;
 
 	// This is only undefined on old serialized data
-	copiedFrom: {
+	readonly copiedFrom: {
 		readonly uri: URI;
 		readonly range: IRange;
 	} | undefined;
@@ -114,7 +119,7 @@ export interface IImageVariableEntry extends IBaseChatRequestVariableEntry {
 	readonly mimeType?: string;
 }
 
-export interface INotebookOutputVariableEntry extends Omit<IBaseChatRequestVariableEntry, 'kind'> {
+export interface INotebookOutputVariableEntry extends IBaseChatRequestVariableEntry {
 	readonly kind: 'notebookOutput';
 	readonly outputIndex?: number;
 	readonly mimeType?: string;
@@ -211,9 +216,26 @@ export interface ISCMHistoryItemVariableEntry extends IBaseChatRequestVariableEn
 }
 
 export type IChatRequestVariableEntry = IGenericChatRequestVariableEntry | IChatRequestImplicitVariableEntry | IChatRequestPasteVariableEntry
-	| ISymbolVariableEntry | ICommandResultVariableEntry | IDiagnosticVariableEntry | IImageVariableEntry | IChatRequestToolEntry
+	| ISymbolVariableEntry | ICommandResultVariableEntry | IDiagnosticVariableEntry | IImageVariableEntry
+	| IChatRequestToolEntry | IChatRequestToolSetEntry
 	| IChatRequestDirectoryEntry | IChatRequestFileEntry | INotebookOutputVariableEntry | IElementVariableEntry
 	| IPromptFileVariableEntry | ISCMHistoryItemVariableEntry;
+
+
+export namespace IChatRequestVariableEntry {
+
+	/**
+	 * Returns URI of the passed variant entry. Return undefined if not found.
+	 */
+	export function toUri(entry: IChatRequestVariableEntry): URI | undefined {
+		return URI.isUri(entry.value)
+			? entry.value
+			: isLocation(entry.value)
+				? entry.value.uri
+				: undefined;
+	}
+}
+
 
 export function isImplicitVariableEntry(obj: IChatRequestVariableEntry): obj is IChatRequestImplicitVariableEntry {
 	return obj.kind === 'implicit';
@@ -253,6 +275,19 @@ export function isChatRequestVariableEntry(obj: unknown): obj is IChatRequestVar
 
 export function isSCMHistoryItemVariableEntry(obj: IChatRequestVariableEntry): obj is ISCMHistoryItemVariableEntry {
 	return obj.kind === 'scmHistoryItem';
+}
+
+
+export const CHAT_ATTACHABLE_IMAGE_MIME_TYPES: Record<string, string> = {
+	png: 'image/png',
+	jpg: 'image/jpeg',
+	jpeg: 'image/jpeg',
+	gif: 'image/gif',
+	webp: 'image/webp',
+};
+
+export function getAttachableImageExtension(mimeType: string): string | undefined {
+	return Object.entries(CHAT_ATTACHABLE_IMAGE_MIME_TYPES).find(([_, value]) => value === mimeType)?.[0];
 }
 
 export interface IChatRequestVariableData {
@@ -625,7 +660,14 @@ class ResponseView extends AbstractResponse {
 		_response: IResponse,
 		public readonly undoStop: string,
 	) {
-		const idx = _response.value.findIndex(v => v.kind === 'undoStop' && v.id === undoStop);
+		let idx = _response.value.findIndex(v => v.kind === 'undoStop' && v.id === undoStop);
+		// Undo stops are inserted before `codeblockUri`'s, which are preceeded by a
+		// markdownContent containing the opening code fence. Adjust the index
+		// backwards to avoid a buggy response if it looked like this happened.
+		if (_response.value[idx + 1]?.kind === 'codeblockUri' && _response.value[idx - 1]?.kind === 'markdownContent') {
+			idx--;
+		}
+
 		super(idx === -1 ? _response.value.slice() : _response.value.slice(0, idx));
 	}
 }
@@ -655,7 +697,7 @@ export class Response extends AbstractResponse implements IDisposable {
 		this._updateRepr(true);
 	}
 
-	updateContent(progress: IChatProgressResponseContent | IChatTextEdit | IChatNotebookEdit | IChatTask | IChatUndoStop, quiet?: boolean): void {
+	updateContent(progress: IChatProgressResponseContent | IChatTextEdit | IChatNotebookEdit | IChatTask, quiet?: boolean): void {
 		if (progress.kind === 'markdownContent') {
 
 			// last response which is NOT a text edit group because we do want to support heterogenous streaming but not have
@@ -1706,8 +1748,9 @@ export class ChatModel extends Disposable implements IChatModel {
 			request.response.applyCodeCitation(progress);
 		} else if (progress.kind === 'move') {
 			this._onDidChange.fire({ kind: 'move', target: progress.uri, range: progress.range });
-		} else if (progress.kind === 'undoStop') {
-			request.response.addUndoStop(progress);
+		} else if (progress.kind === 'codeblockUri' && progress.isEdit) {
+			request.response.addUndoStop({ id: generateUuid(), kind: 'undoStop' });
+			request.response.updateContent(progress, quiet);
 		} else if (progress.kind === 'progressTaskResult') {
 			// Should have been handled upstream, not sent to model
 			this.logService.error(`Couldn't handle progress: ${JSON.stringify(progress)}`);
@@ -1902,4 +1945,40 @@ export enum ChatRequestEditedFileEventKind {
 export interface IChatAgentEditedFileEvent {
 	readonly uri: URI;
 	readonly eventKind: ChatRequestEditedFileEventKind;
+}
+
+/** URI for a resource embedded in a chat request/response */
+export namespace ChatResponseResource {
+	export const scheme = 'vscode-chat-response-resource';
+
+	export function createUri(sessionId: string, requestId: string, toolCallId: string, index: number, basename?: string): URI {
+		return URI.from({
+			scheme: ChatResponseResource.scheme,
+			authority: sessionId,
+			path: `/tool/${requestId}/${toolCallId}/${index}` + (basename ? `/${basename}` : ''),
+		});
+	}
+
+	export function parseUri(uri: URI): undefined | { sessionId: string; requestId: string; toolCallId: string; index: number } {
+		if (uri.scheme !== ChatResponseResource.scheme) {
+			return undefined;
+		}
+
+		const parts = uri.path.split('/');
+		if (parts.length < 5) {
+			return undefined;
+		}
+
+		const [, kind, requestId, toolCallId, index] = parts;
+		if (kind !== 'tool') {
+			return undefined;
+		}
+
+		return {
+			sessionId: uri.authority,
+			requestId: requestId,
+			toolCallId: toolCallId,
+			index: Number(index),
+		};
+	}
 }
