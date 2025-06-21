@@ -3,10 +3,11 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { addDisposableListener } from '../../../base/browser/dom.js';
 import { CachedFunction } from '../../../base/common/cache.js';
 import { getStructuralKey } from '../../../base/common/equals.js';
 import { Event, IValueWithChangeEvent } from '../../../base/common/event.js';
-import { Disposable, IDisposable, toDisposable } from '../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, IDisposable, toDisposable } from '../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../base/common/network.js';
 import { derived, observableFromEvent, ValueWithChangeEventFromObservable } from '../../../base/common/observable.js';
 import { localize } from '../../../nls.js';
@@ -277,17 +278,26 @@ function checkEnabledState(state: EnabledState, getScreenReaderAttached: () => b
  * Play the given audio url.
  * @volume value between 0 and 1
  */
-function playAudio(url: string, volume: number): Promise<HTMLAudioElement> {
-	return new Promise((resolve, reject) => {
+async function playAudio(url: string, volume: number): Promise<HTMLAudioElement> {
+	const disposables = new DisposableStore();
+	try {
+		return await doPlayAudio(url, volume, disposables);
+	} finally {
+		disposables.dispose();
+	}
+}
+
+function doPlayAudio(url: string, volume: number, disposables: DisposableStore): Promise<HTMLAudioElement> {
+	return new Promise<HTMLAudioElement>((resolve, reject) => {
 		const audio = new Audio(url);
 		audio.volume = volume;
-		audio.addEventListener('ended', () => {
+		disposables.add(addDisposableListener(audio, 'ended', () => {
 			resolve(audio);
-		});
-		audio.addEventListener('error', (e) => {
+		}));
+		disposables.add(addDisposableListener(audio, 'error', (e) => {
 			// When the error event fires, ended might not be called
 			reject(e.error);
-		});
+		}));
 		audio.play().catch(e => {
 			// When play fails, the error event is not fired.
 			reject(e);
@@ -333,6 +343,8 @@ export class Sound {
 	public static readonly nextEditSuggestion = Sound.register({ fileName: 'nextEditSuggestion.mp3' });
 	public static readonly terminalCommandSucceeded = Sound.register({ fileName: 'terminalCommandSucceeded.mp3' });
 	public static readonly chatUserActionRequired = Sound.register({ fileName: 'chatUserActionRequired.mp3' });
+	public static readonly codeActionTriggered = Sound.register({ fileName: 'codeActionTriggered.mp3' });
+	public static readonly codeActionApplied = Sound.register({ fileName: 'codeActionApplied.mp3' });
 
 	private constructor(public readonly fileName: string) { }
 }
@@ -600,7 +612,7 @@ export class AccessibilitySignal {
 
 	public static readonly codeActionTriggered = AccessibilitySignal.register({
 		name: localize('accessibilitySignals.codeActionRequestTriggered', 'Code Action Request Triggered'),
-		sound: Sound.voiceRecordingStarted,
+		sound: Sound.codeActionTriggered,
 		legacySoundSettingsKey: 'audioCues.codeActionRequestTriggered',
 		legacyAnnouncementSettingsKey: 'accessibility.alert.codeActionRequestTriggered',
 		announcementMessage: localize('accessibility.signals.codeActionRequestTriggered', 'Code Action Request Triggered'),
@@ -610,7 +622,7 @@ export class AccessibilitySignal {
 	public static readonly codeActionApplied = AccessibilitySignal.register({
 		name: localize('accessibilitySignals.codeActionApplied', 'Code Action Applied'),
 		legacySoundSettingsKey: 'audioCues.codeActionApplied',
-		sound: Sound.voiceRecordingStopped,
+		sound: Sound.codeActionApplied,
 		settingsKey: 'accessibility.signals.codeActionApplied'
 	});
 
