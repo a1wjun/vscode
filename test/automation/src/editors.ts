@@ -3,7 +3,6 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Quality } from './application';
 import { Code } from './code';
 
 export class Editors {
@@ -16,6 +15,7 @@ export class Editors {
 		} else {
 			await this.code.sendKeybinding('ctrl+s');
 		}
+		await this.code.waitForElements('.tab.active.dirty', false, results => results.length === 0);
 	}
 
 	async selectTab(fileName: string): Promise<void> {
@@ -53,7 +53,7 @@ export class Editors {
 	}
 
 	async waitForActiveEditor(fileName: string, retryCount?: number): Promise<any> {
-		const selector = `.editor-instance .monaco-editor[data-uri$="${fileName}"] ${this.code.quality === Quality.Stable ? 'textarea' : '.native-edit-context'}`;
+		const selector = `.editor-instance .monaco-editor[data-uri$="${fileName}"] ${!this.code.editContextEnabled ? 'textarea' : '.native-edit-context'}`;
 		return this.code.waitForActiveElement(selector, retryCount);
 	}
 

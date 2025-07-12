@@ -83,7 +83,7 @@
 			"fileMatch": [
 				"cgmanifest.json"
 			],
-			"url": "https://json.schemastore.org/component-detection-manifest.json",
+			"url": "https://www.schemastore.org/component-detection-manifest.json",
 		},
 		{
 			"fileMatch": [
@@ -181,5 +181,11 @@
 		"*": "error",
 		"ts": "warning",
 		"eslint": "warning"
-	}
+	},
+	"chat.instructionsFilesLocations": {
+		".github/instructions": true,
+		".vscode": true
+	},
+	"githubPullRequests.codingAgent.enabled": true,
+	"githubPullRequests.codingAgent.uiIntegration": true
 }

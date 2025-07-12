@@ -8,7 +8,8 @@ import { localize } from '../../../../../../../../../nls.js';
 import { assert } from '../../../../../../../../../base/common/assert.js';
 import { isOneOf } from '../../../../../../../../../base/common/types.js';
 import { PromptMetadataDiagnostic, PromptMetadataError } from '../../diagnostics.js';
-import { FrontMatterRecord, FrontMatterString } from '../../../../../../../../../editor/common/codecs/frontMatterCodec/tokens/index.js';
+import { FrontMatterSequence } from '../../../../codecs/base/frontMatterCodec/tokens/frontMatterSequence.js';
+import { FrontMatterRecord, FrontMatterString } from '../../../../codecs/base/frontMatterCodec/tokens/index.js';
 
 /**
  * Enum type is the special case of the {@link PromptStringMetadata string}
@@ -29,12 +30,12 @@ export abstract class PromptEnumMetadata<
 	/**
 	 * Valid enum value or 'undefined'.
 	 */
-	private value: TValidValues | undefined;
+	private enumValue: TValidValues | undefined;
 	/**
 	 * Valid enum value or 'undefined'.
 	 */
-	public get enumValue(): TValidValues | undefined {
-		return this.value;
+	public override get value(): TValidValues | undefined {
+		return this.enumValue;
 	}
 
 	/**
@@ -49,13 +50,14 @@ export abstract class PromptEnumMetadata<
 
 		// sanity check for our expectations about the validate call
 		assert(
-			this.valueToken instanceof FrontMatterString,
+			this.valueToken instanceof FrontMatterString
+			|| this.valueToken instanceof FrontMatterSequence,
 			`Record token must be 'string', got '${this.valueToken}'.`,
 		);
 
 		const { cleanText } = this.valueToken;
 		if (isOneOf(cleanText, this.validValues)) {
-			this.value = cleanText;
+			this.enumValue = cleanText;
 
 			return this.issues;
 		}
@@ -65,7 +67,7 @@ export abstract class PromptEnumMetadata<
 				this.valueToken.range,
 				localize(
 					'prompt.header.metadata.enum.diagnostics.invalid-value',
-					"Value of the '{0}' metadata must be one of {1}, got '{2}'.",
+					"The '{0}' metadata must be one of {1}, got '{2}'.",
 					this.recordName,
 					this.validValues
 						.map((value) => {

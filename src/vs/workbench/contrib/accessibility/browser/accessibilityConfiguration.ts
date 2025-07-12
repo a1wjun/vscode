@@ -759,9 +759,8 @@ const configuration: IConfigurationNode = {
 					'description': localize('accessibility.signals.chatUserActionRequired.sound', "Plays a sound when user action is required in the chat."),
 					'type': 'string',
 					'enum': ['auto', 'on', 'off'],
-					'default': 'auto',
 					'enumDescriptions': [
-						localize('sound.enabled.autoWindow', "Enable sound when a screen reader is attached or when the current window is focused."),
+						localize('sound.enabled.autoWindow', "Enable sound when a screen reader is attached."),
 						localize('sound.enabled.on', "Enable sound."),
 						localize('sound.enabled.off', "Disable sound.")
 					],
@@ -771,6 +770,11 @@ const configuration: IConfigurationNode = {
 					...announcementFeatureBase
 				},
 			},
+			default: {
+				'sound': 'auto',
+				'announcement': 'auto'
+			},
+			tags: ['accessibility']
 		},
 		'accessibility.underlineLinks': {
 			'type': 'boolean',
