@@ -2074,6 +2074,15 @@ have to be updated for changes to the rules above, or to support more deeply nes
 	display: flex;
 }
 
+/* Recently used model items: show vendor label inline next to the model name. */
+.action-widget .monaco-list-row.chat-model-recently-used .title {
+	flex: 0 1 auto;
+}
+
+.action-widget .monaco-list-row.chat-model-recently-used .description {
+	flex: 1;
+}
+
 .interactive-session .chat-input-toolbars .codicon-debug-stop {
 	color: var(--vscode-icon-foreground) !important;
 }
