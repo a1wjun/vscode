@@ -771,6 +771,37 @@ export class ActionListWidget<T> extends Disposable {
 		const isFiltering = !skipTextFilter && filterLower.length > 0;
 		const visible: IActionListItem<T>[] = [];
 
+		// When filtering, pre-compute which labeled separators should be shown.
+		// A labeled separator is shown if any subsequent action items (before the
+		// next separator) match the filter.
+		// Needed so that section headers (e.g. "Copilot" in
+		// the chat model picker) stay visible above their matching items while
+		// filtering, but are hidden when their entire section is filtered out —
+		// avoiding empty/orphan headers and preserving group context for matches.
+		const labeledSeparatorsToShow = new Set<IActionListItem<T>>();
+		if (isFiltering) {
+			for (let i = 0; i < this._allMenuItems.length; i++) {
+				const item = this._allMenuItems[i];
+				if (item.kind !== ActionListItemKind.Separator || !item.label) {
+					continue;
+				}
+				for (let j = i + 1; j < this._allMenuItems.length; j++) {
+					const next = this._allMenuItems[j];
+					if (next.kind === ActionListItemKind.Separator) {
+						break;
+					}
+					if (next.kind === ActionListItemKind.Action && !next.isSectionToggle && !next.showAlways) {
+						const label = (next.label ?? '').toLowerCase();
+						const descValue = typeof next.description === 'string' ? next.description : next.description?.value ?? '';
+						if (label.includes(filterLower) || descValue.toLowerCase().includes(filterLower)) {
+							labeledSeparatorsToShow.add(item);
+							break;
+						}
+					}
+				}
+			}
+		}
+
 		// Remember the focused item before splice
 		const focusedIndexes = this._list.getFocus();
 		let focusedItem: IActionListItem<T> | undefined;
@@ -790,6 +821,9 @@ export class ActionListWidget<T> extends Disposable {
 
 			if (item.kind === ActionListItemKind.Separator) {
 				if (isFiltering) {
+					if (labeledSeparatorsToShow.has(item)) {
+						visible.push(item);
+					}
 					continue;
 				}
 				if (item.section && this._collapsedSections.has(item.section)) {
@@ -806,7 +840,6 @@ export class ActionListWidget<T> extends Disposable {
 					visible.push(item);
 					continue;
 				}
-				// When filtering, skip section toggle items and only match content
 				if (item.isSectionToggle) {
 					continue;
 				}
@@ -993,7 +1026,7 @@ export class ActionListWidget<T> extends Disposable {
 			case ActionListItemKind.Header:
 				return this._headerLineHeight;
 			case ActionListItemKind.Separator:
-				return this._separatorLineHeight;
+				return item.label ? this._actionLineHeight : this._separatorLineHeight;
 			default:
 				return item.detail ? 48 : this._actionLineHeight;
 		}
