@@ -359,7 +359,7 @@ export abstract class AbstractExtensionManagementService extends CommontExtensio
 					// (e.g. installFromGallery) can find the actual local extension or real error
 					// instead of falling through to a generic "Unknown error".
 					const resultKey = `${existingTask.identifier.id.toLowerCase()}-${installExtensionTaskOptions.profileLocation.toString()}`;
-					alreadyRequestedInstallations.push(existingTask.waitUntilTaskIsFinished().then(local => {
+					const waitForInstallation = existingTask.waitUntilTaskIsFinished().then(local => {
 						installExtensionResultsMap.set(resultKey, {
 							local,
 							identifier: existingTask.identifier,
@@ -380,7 +380,12 @@ export abstract class AbstractExtensionManagementService extends CommontExtensio
 							profileLocation: installExtensionTaskOptions.profileLocation,
 						});
 						throw error;
-					}));
+					});
+					alreadyRequestedInstallations.push(waitForInstallation);
+					// Attach a no-op rejection handler to prevent an unhandledRejection if the
+					// outer try throws before `alreadyRequestedInstallations` is awaited below.
+					// The original promise is still observed via `joinAllSettled` on the happy path.
+					waitForInstallation.catch(() => { });
 				} else {
 					createInstallExtensionTask(manifest, extension, installExtensionTaskOptions, undefined);
 				}
