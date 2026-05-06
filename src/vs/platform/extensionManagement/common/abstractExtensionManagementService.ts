@@ -353,8 +353,34 @@ export abstract class AbstractExtensionManagementService extends CommontExtensio
 
 				const existingInstallExtensionTask = !URI.isUri(extension) ? this.installingExtensions.get(getInstallExtensionTaskKey(extension, installExtensionTaskOptions.profileLocation)) : undefined;
 				if (existingInstallExtensionTask) {
-					this.logService.info('Extension is already requested to install', existingInstallExtensionTask.task.identifier.id, installExtensionTaskOptions.profileLocation.toString());
-					alreadyRequestedInstallations.push(existingInstallExtensionTask.task.waitUntilTaskIsFinished());
+					const existingTask = existingInstallExtensionTask.task;
+					this.logService.info('Extension is already requested to install', existingTask.identifier.id, installExtensionTaskOptions.profileLocation.toString());
+					// Record the result of the in-flight install into our results map so callers
+					// (e.g. installFromGallery) can find the actual local extension or real error
+					// instead of falling through to a generic "Unknown error".
+					const resultKey = `${existingTask.identifier.id.toLowerCase()}-${installExtensionTaskOptions.profileLocation.toString()}`;
+					alreadyRequestedInstallations.push(existingTask.waitUntilTaskIsFinished().then(local => {
+						installExtensionResultsMap.set(resultKey, {
+							local,
+							identifier: existingTask.identifier,
+							operation: existingTask.operation,
+							source: existingTask.source,
+							context: installExtensionTaskOptions.context,
+							profileLocation: installExtensionTaskOptions.profileLocation,
+							applicationScoped: local.isApplicationScoped,
+						});
+						return local;
+					}, error => {
+						installExtensionResultsMap.set(resultKey, {
+							error: toExtensionManagementError(error),
+							identifier: existingTask.identifier,
+							operation: existingTask.operation,
+							source: existingTask.source,
+							context: installExtensionTaskOptions.context,
+							profileLocation: installExtensionTaskOptions.profileLocation,
+						});
+						throw error;
+					}));
 				} else {
 					createInstallExtensionTask(manifest, extension, installExtensionTaskOptions, undefined);
 				}
