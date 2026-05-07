@@ -19,7 +19,11 @@ import { MessageAttachmentKind, type MessageAttachment } from '../../common/stat
  * shape so a future phase that adds image rendering or inline range
  * substitution can extend without restructuring.
  *
- * Only resource attachments are honoured today \u2014 simple and embedded
+ * Selections are rendered as URI references with an optional line
+ * suffix. The protocol's {@link TextSelection} carries range metadata
+ * only; the selected text is not included inline.
+ *
+ * Only resource attachments are honoured today — simple and embedded
  * resources are dropped because the current Claude path does not have
  * a place to consume them.
  */
@@ -40,11 +44,6 @@ export function resolvePromptToContentBlocks(
 		if (att.displayKind === 'selection') {
 			const startLine = att.selection ? `:${att.selection.range.start.line + 1}` : '';
 			refLines.push(`- ${uriToString(uri)}${startLine}`);
-			if (att.selection?.value) {
-				refLines.push('```');
-				refLines.push(att.selection.value);
-				refLines.push('```');
-			}
 		} else {
 			refLines.push(`- ${uriToString(uri)}`);
 		}

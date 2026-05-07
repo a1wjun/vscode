@@ -22,7 +22,7 @@ import { ISessionDataService } from '../../common/sessionDataService.js';
 import type { RootConfigChangedAction } from '../../common/state/protocol/actions.js';
 import { CustomizationStatus } from '../../common/state/protocol/state.js';
 import { ActionType, ActionEnvelope, SessionAction } from '../../common/state/sessionActions.js';
-import { MessageAttachmentKind, buildSubagentSessionUri, PendingMessageKind, ResponsePartKind, SessionStatus, ToolCallConfirmationReason, ToolCallStatus, ToolResultContentType } from '../../common/state/sessionState.js';
+import { buildSubagentSessionUri, MessageAttachmentKind, PendingMessageKind, ResponsePartKind, SessionStatus, ToolCallConfirmationReason, ToolCallStatus, ToolResultContentType } from '../../common/state/sessionState.js';
 import { IProductService } from '../../../product/common/productService.js';
 import { AgentConfigurationService, IAgentConfigurationService } from '../../node/agentConfigurationService.js';
 import { IAgentHostGitService } from '../../node/agentHostGitService.js';
@@ -146,6 +146,50 @@ suite('AgentSideEffects', () => {
 				session: URI.parse(sessionUri.toString()),
 				prompt: 'hello world',
 				attachments: [{ type: MessageAttachmentKind.Resource, uri: fileUri.toString(), label: 'test.ts', displayKind: 'document' }],
+			}]);
+		});
+
+		test('passes protocol selection attachment range straight through to the agent', () => {
+			setupSession();
+			const fileUri = URI.file('/workspace/selection.ts');
+			const action: SessionAction = {
+				type: ActionType.SessionTurnStarted,
+				session: sessionUri.toString(),
+				turnId: 'turn-1',
+				userMessage: {
+					text: 'hello world',
+					attachments: [{
+						type: MessageAttachmentKind.Resource,
+						uri: fileUri.toString(),
+						label: 'selection.ts',
+						displayKind: 'selection',
+						selection: {
+							range: {
+								start: { line: 2, character: 3 },
+								end: { line: 4, character: 5 },
+							},
+						},
+					}],
+				},
+			};
+
+			sideEffects.handleAction(action);
+
+			assert.deepStrictEqual(agent.sendMessageCalls, [{
+				session: URI.parse(sessionUri.toString()),
+				prompt: 'hello world',
+				attachments: [{
+					type: MessageAttachmentKind.Resource,
+					uri: fileUri.toString(),
+					label: 'selection.ts',
+					displayKind: 'selection',
+					selection: {
+						range: {
+							start: { line: 2, character: 3 },
+							end: { line: 4, character: 5 },
+						},
+					},
+				}],
 			}]);
 		});
 

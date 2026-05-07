@@ -40,6 +40,7 @@ import { IAgentHostGitService } from '../../node/agentHostGitService.js';
 import { ClaudeAgent } from '../../node/claude/claudeAgent.js';
 import { ClaudeAgentSdkService, IClaudeAgentSdkService, IClaudeSdkBindings } from '../../node/claude/claudeAgentSdkService.js';
 import { IClaudeProxyHandle, IClaudeProxyService } from '../../node/claude/claudeProxyService.js';
+import { resolvePromptToContentBlocks } from '../../node/claude/claudePromptResolver.js';
 import { ICopilotApiService, type ICopilotApiServiceRequestOptions } from '../../node/shared/copilotApiService.js';
 import { AgentService } from '../../node/agentService.js';
 import { createNoopGitService, createNullSessionDataService, createSessionDataService, TestSessionDatabase } from '../common/sessionTestHelpers.js';
@@ -1811,6 +1812,29 @@ suite('ClaudeAgent', () => {
 				'You should not respond to this context unless it is highly relevant to your task.\n' +
 				'</system-reminder>',
 		});
+	});
+
+	test('selection attachments become URI references with line suffixes', () => {
+		const fileUri = URI.file('/work/src/foo.ts');
+		const blocks = resolvePromptToContentBlocks('review please', [{
+			type: MessageAttachmentKind.Resource,
+			uri: fileUri.toString(),
+			label: 'foo.ts',
+			displayKind: 'selection',
+			selection: {
+				range: {
+					start: { line: 9, character: 1 },
+					end: { line: 11, character: 2 },
+				},
+			},
+		}]);
+
+		assert.strictEqual(blocks.length, 2);
+		assert.strictEqual(blocks[0].type, 'text');
+		assert.strictEqual(blocks[0].text, 'review please');
+		assert.strictEqual(blocks[1].type, 'text');
+		assert.ok(blocks[1].text.includes(`- ${fileUri.fsPath}:10`));
+		assert.ok(!blocks[1].text.includes('```'));
 	});
 
 	test('shutdown resolves without throwing', async () => {

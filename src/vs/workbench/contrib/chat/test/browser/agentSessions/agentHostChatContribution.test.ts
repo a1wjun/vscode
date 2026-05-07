@@ -13,6 +13,7 @@ import { mock, upcastPartial } from '../../../../../../base/test/common/mock.js'
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../../base/test/common/utils.js';
 import { runWithFakedTimers } from '../../../../../../base/test/common/timeTravelScheduler.js';
 import { timeout } from '../../../../../../base/common/async.js';
+import { Range } from '../../../../../../editor/common/core/range.js';
 import { ILogService, NullLogService } from '../../../../../../platform/log/common/log.js';
 import { IConfigurationService } from '../../../../../../platform/configuration/common/configuration.js';
 import { IAgentCreateSessionConfig, IAgentHostService, IAgentSessionMetadata, AgentSession } from '../../../../../../platform/agentHost/common/agentService.js';
@@ -2258,7 +2259,7 @@ suite('AgentHostChatContribution', () => {
 				message: 'explain this',
 				variables: {
 					variables: [
-						upcastPartial({ kind: 'implicit', id: 'v-implicit', name: 'selection', isFile: true as const, isSelection: true, uri: URI.file('/workspace/foo.ts'), enabled: true, value: undefined }),
+						upcastPartial({ kind: 'implicit', id: 'v-implicit', name: 'selection', isFile: true as const, isSelection: true, uri: URI.file('/workspace/foo.ts'), enabled: true, value: { uri: URI.file('/workspace/foo.ts'), range: new Range(2, 3, 4, 5) } }),
 					],
 				},
 			});
@@ -2268,8 +2269,84 @@ suite('AgentHostChatContribution', () => {
 			assert.strictEqual(agentHostService.turnActions.length, 1);
 			const turnAction = agentHostService.turnActions[0].action as ITurnStartedAction;
 			assert.deepStrictEqual(turnAction.userMessage.attachments, [
-				{ type: MessageAttachmentKind.Resource, uri: URI.file('/workspace/foo.ts').toString(), label: 'selection', displayKind: 'selection' },
+				{
+					type: MessageAttachmentKind.Resource,
+					uri: URI.file('/workspace/foo.ts').toString(),
+					label: 'selection',
+					displayKind: 'selection',
+					selection: {
+						range: {
+							start: { line: 1, character: 2 },
+							end: { line: 3, character: 4 },
+						},
+					},
+				},
 			]);
+		}));
+
+		test('file variable with location value becomes selection attachment', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
+			const { sessionHandler, agentHostService, chatAgentService } = createContribution(disposables);
+
+			const { turnPromise, session, turnId, fire } = await startTurn(sessionHandler, agentHostService, chatAgentService, disposables, {
+				message: 'explain this selected range',
+				variables: {
+					variables: [
+						upcastPartial({
+							kind: 'file',
+							id: 'v-file-selection',
+							name: 'foo.ts:2-4',
+							value: { uri: URI.file('/workspace/foo.ts'), range: new Range(2, 3, 4, 5) },
+						}),
+					],
+				},
+			});
+			fire({ type: 'session/turnComplete', session, turnId } as SessionAction);
+			await turnPromise;
+
+			assert.strictEqual(agentHostService.turnActions.length, 1);
+			const turnAction = agentHostService.turnActions[0].action as ITurnStartedAction;
+			assert.deepStrictEqual(turnAction.userMessage.attachments, [
+				{
+					type: MessageAttachmentKind.Resource,
+					uri: URI.file('/workspace/foo.ts').toString(),
+					label: 'foo.ts:2-4',
+					displayKind: 'selection',
+					selection: {
+						range: {
+							start: { line: 1, character: 2 },
+							end: { line: 3, character: 4 },
+						},
+					},
+				},
+			]);
+		}));
+
+		test('implicit visible code location does not become selection attachment', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
+			const { sessionHandler, agentHostService, chatAgentService } = createContribution(disposables);
+
+			const { turnPromise, session, turnId, fire } = await startTurn(sessionHandler, agentHostService, chatAgentService, disposables, {
+				message: 'explain this',
+				variables: {
+					variables: [
+						upcastPartial({
+							kind: 'implicit',
+							id: 'v-implicit-visible-code',
+							name: 'visible code',
+							isFile: true as const,
+							isSelection: false,
+							uri: URI.file('/workspace/foo.ts'),
+							enabled: true,
+							value: { uri: URI.file('/workspace/foo.ts'), range: new Range(2, 3, 4, 5) },
+						}),
+					],
+				},
+			});
+			fire({ type: 'session/turnComplete', session, turnId } as SessionAction);
+			await turnPromise;
+
+			assert.strictEqual(agentHostService.turnActions.length, 1);
+			const turnAction = agentHostService.turnActions[0].action as ITurnStartedAction;
+			assert.strictEqual(turnAction.userMessage.attachments, undefined);
 		}));
 
 		test('non-file URI variables are skipped', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
@@ -2360,6 +2437,7 @@ suite('AgentHostChatContribution', () => {
 		test('rebases file/directory/selection attachments under requested working dir onto resolved working dir', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
 			const requestedDir = URI.file('/source');
 			const resolvedDir = URI.file('/worktree');
+			const expectedSelectionUri = URI.file('/worktree/sub/foo.ts');
 			const { sessionHandler, agentHostService, chatAgentService } = createContribution(disposables, {
 				workingDirectoryResolver: { resolve: () => requestedDir },
 			});
@@ -2371,7 +2449,16 @@ suite('AgentHostChatContribution', () => {
 					variables: [
 						upcastPartial({ kind: 'file', id: 'v-file', name: 'a.ts', value: URI.file('/source/a.ts') }),
 						upcastPartial({ kind: 'directory', id: 'v-dir', name: 'lib', value: URI.file('/source/lib') }),
-						upcastPartial({ kind: 'implicit', id: 'v-implicit', name: 'selection', isFile: true as const, isSelection: true, uri: URI.file('/source/sub/foo.ts'), enabled: true, value: undefined }),
+						upcastPartial({
+							kind: 'implicit',
+							id: 'v-implicit',
+							name: 'selection',
+							isFile: true as const,
+							isSelection: true,
+							uri: URI.file('/source/sub/foo.ts'),
+							enabled: true,
+							value: { uri: URI.file('/source/sub/foo.ts'), range: new Range(2, 3, 4, 5) },
+						}),
 					],
 				},
 			});
@@ -2383,7 +2470,18 @@ suite('AgentHostChatContribution', () => {
 			assert.deepStrictEqual(turnAction.userMessage.attachments, [
 				{ type: MessageAttachmentKind.Resource, uri: URI.file('/worktree/a.ts').toString(), label: 'a.ts', displayKind: 'document' },
 				{ type: MessageAttachmentKind.Resource, uri: URI.file('/worktree/lib').toString(), label: 'lib', displayKind: 'directory' },
-				{ type: MessageAttachmentKind.Resource, uri: URI.file('/worktree/sub/foo.ts').toString(), label: 'selection', displayKind: 'selection' },
+				{
+					type: MessageAttachmentKind.Resource,
+					uri: expectedSelectionUri.toString(),
+					label: 'selection',
+					displayKind: 'selection',
+					selection: {
+						range: {
+							start: { line: 1, character: 2 },
+							end: { line: 3, character: 4 },
+						},
+					},
+				},
 			]);
 		}));
 
