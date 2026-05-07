@@ -11,7 +11,6 @@ const ROOT = path.join(import.meta.dirname, '../../../');
 
 const shasum = crypto.createHash('sha256');
 
-shasum.update('1'); // increment to bust potential bad npm cache?
 shasum.update(fs.readFileSync(path.join(ROOT, 'build/.cachesalt')));
 shasum.update(fs.readFileSync(path.join(ROOT, '.npmrc')));
 shasum.update(fs.readFileSync(path.join(ROOT, 'build', '.npmrc')));
