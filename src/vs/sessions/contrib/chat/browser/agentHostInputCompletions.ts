@@ -150,13 +150,13 @@ export class AgentHostInputCompletionHandler extends Disposable {
 
 		const suggestions: CompletionItem[] = [];
 		for (const item of result.items) {
-			suggestions.push(this._toMonacoItem(model, position, item));
+			suggestions.push(this._toMonacoItem(position, item));
 		}
 		return { suggestions };
 	}
 
-	private _toMonacoItem(model: ITextModel, position: Position, item: IChatInputCompletionItem): CompletionItem {
-		const replaceRange = this._computeRange(model, position, item);
+	private _toMonacoItem(position: Position, item: IChatInputCompletionItem): CompletionItem {
+		const replaceRange = this._computeRange(position, item);
 		const label = item.attachment.displayName ?? item.insertText;
 		const description = item.attachment.uri.path;
 		const kind = item.attachment.isDirectory ? CompletionItemKind.Folder : CompletionItemKind.File;
@@ -165,6 +165,7 @@ export class AgentHostInputCompletionHandler extends Disposable {
 			name: item.attachment.displayName ?? this._basename(item.attachment.uri),
 			value: item.attachment.uri,
 			kind: item.attachment.isDirectory ? 'directory' : 'file',
+			_meta: item.attachment._meta,
 		};
 		return {
 			label: { label, description },
@@ -180,14 +181,13 @@ export class AgentHostInputCompletionHandler extends Disposable {
 		};
 	}
 
-	private _computeRange(model: ITextModel, position: Position, item: IChatInputCompletionItem): { insert: Range; replace: Range } {
-		// AHP returns UTF-16 offsets into the full input. When omitted,
-		// default to a zero-length range at the cursor (Monaco will then
-		// insert without replacing).
-		const startOffset = item.rangeStart ?? model.getOffsetAt(position);
-		const endOffset = item.rangeEnd ?? model.getOffsetAt(position);
-		const start = model.getPositionAt(startOffset);
-		const end = model.getPositionAt(endOffset);
+	private _computeRange(position: Position, item: IChatInputCompletionItem): { insert: Range; replace: Range } {
+		// Positions returned by the provider are already 1-based Monaco
+		// positions, so they can be used directly. When omitted, default
+		// to a zero-length range at the cursor (Monaco then inserts
+		// without replacing).
+		const start = item.start ?? position;
+		const end = item.end ?? position;
 		const replace = new Range(start.lineNumber, start.column, end.lineNumber, end.column);
 		const insert = new Range(start.lineNumber, start.column, position.lineNumber, position.column);
 		return { insert, replace };

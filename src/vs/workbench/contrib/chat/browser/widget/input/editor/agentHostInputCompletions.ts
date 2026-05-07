@@ -61,6 +61,7 @@ export class AgentHostInputCompletions extends Disposable {
 				isDirectory: arg.isDirectory,
 				fullName: arg.displayName,
 				data: arg.uri,
+				_meta: arg._meta,
 			});
 		}));
 
@@ -123,13 +124,13 @@ export class AgentHostInputCompletions extends Disposable {
 
 		const suggestions: CompletionItem[] = [];
 		for (const item of result.items) {
-			suggestions.push(this._toMonacoItem(model, position, widget, item));
+			suggestions.push(this._toMonacoItem(position, widget, item));
 		}
 		return { suggestions };
 	}
 
-	private _toMonacoItem(model: ITextModel, position: Position, widget: IChatWidget, item: IChatInputCompletionItem): CompletionItem {
-		const replaceRange = this._computeRange(model, position, item);
+	private _toMonacoItem(position: Position, widget: IChatWidget, item: IChatInputCompletionItem): CompletionItem {
+		const replaceRange = this._computeRange(position, item);
 		const label = item.attachment.displayName ?? item.insertText;
 		const description = item.attachment.uri.path;
 		return {
@@ -141,19 +142,18 @@ export class AgentHostInputCompletions extends Disposable {
 			command: {
 				id: AgentHostInputCompletions.addReferenceCommand,
 				title: '',
-				arguments: [new AgentHostReferenceArgument(widget, item.attachment.uri, item.attachment.displayName, !!item.attachment.isDirectory, replaceRange.replace.setEndPosition(replaceRange.replace.startLineNumber, replaceRange.replace.startColumn + item.insertText.length))],
+				arguments: [new AgentHostReferenceArgument(widget, item.attachment.uri, item.attachment.displayName, !!item.attachment.isDirectory, replaceRange.replace.setEndPosition(replaceRange.replace.startLineNumber, replaceRange.replace.startColumn + item.insertText.length), item.attachment._meta)],
 			},
 		};
 	}
 
-	private _computeRange(model: ITextModel, position: Position, item: IChatInputCompletionItem): { insert: Range; replace: Range } {
-		// AHP returns offsets into the full input. Convert them to a Range
-		// in the Monaco model. When omitted, default to a zero-length range
-		// at the cursor (Monaco will then insert without replacing).
-		const startOffset = item.rangeStart ?? model.getOffsetAt(position);
-		const endOffset = item.rangeEnd ?? model.getOffsetAt(position);
-		const start = model.getPositionAt(startOffset);
-		const end = model.getPositionAt(endOffset);
+	private _computeRange(position: Position, item: IChatInputCompletionItem): { insert: Range; replace: Range } {
+		// Positions returned by the provider are already 1-based Monaco
+		// positions, so they can be used directly. When omitted, default
+		// to a zero-length range at the cursor (Monaco then inserts
+		// without replacing).
+		const start = item.start ?? position;
+		const end = item.end ?? position;
 		const replace = new Range(start.lineNumber, start.column, end.lineNumber, end.column);
 		const insert = new Range(start.lineNumber, start.column, position.lineNumber, position.column);
 		return { insert, replace };
@@ -167,6 +167,7 @@ class AgentHostReferenceArgument {
 		readonly displayName: string | undefined,
 		readonly isDirectory: boolean,
 		readonly range: Range,
+		readonly _meta: Record<string, unknown> | undefined,
 	) { }
 }
 

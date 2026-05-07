@@ -10,6 +10,7 @@ import { IDisposable } from '../../../../base/common/lifecycle.js';
 import { IObservable } from '../../../../base/common/observable.js';
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { URI } from '../../../../base/common/uri.js';
+import { IPosition } from '../../../../editor/common/core/position.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { IChatAgentAttachmentCapabilities, IChatAgentRequest } from './participants/chatAgents.js';
 import { IChatEditingSession } from './editing/chatEditingService.js';
@@ -297,12 +298,13 @@ export interface IChatInputCompletionItem {
 	/** Text inserted into the input when this item is accepted. */
 	readonly insertText: string;
 	/**
-	 * Half-open interval `[rangeStart, rangeEnd)` of UTF-16 code-unit
-	 * offsets in the *current* input text that {@link insertText} replaces.
-	 * When omitted, the workbench replaces the word at the cursor.
+	 * Half-open range `[start, end)` in the *current* input text that
+	 * {@link insertText} replaces. Positions use 1-based `lineNumber` and
+	 * `column` to match Monaco. When omitted, the workbench replaces the
+	 * word at the cursor.
 	 */
-	readonly rangeStart?: number;
-	readonly rangeEnd?: number;
+	readonly start?: IPosition;
+	readonly end?: IPosition;
 	/** Attachment associated with the item. */
 	readonly attachment: IChatInputCompletionAttachment;
 }
@@ -316,6 +318,12 @@ export interface IChatInputCompletionAttachment {
 	readonly uri: URI;
 	readonly displayName?: string;
 	readonly isDirectory?: boolean;
+	/**
+	 * Implementation-defined metadata that MUST be preserved by the
+	 * workbench when the accepted completion is sent back as part of a
+	 * user message attachment.
+	 */
+	readonly _meta?: Record<string, unknown>;
 }
 
 /**

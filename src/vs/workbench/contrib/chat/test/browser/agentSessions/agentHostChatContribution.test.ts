@@ -2231,6 +2231,27 @@ suite('AgentHostChatContribution', () => {
 			]);
 		}));
 
+		test('preserves _meta from variable entry on outgoing attachment', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
+			const { sessionHandler, agentHostService, chatAgentService } = createContribution(disposables);
+
+			const { turnPromise, session, turnId, fire } = await startTurn(sessionHandler, agentHostService, chatAgentService, disposables, {
+				message: 'check this file',
+				variables: {
+					variables: [
+						upcastPartial({ kind: 'file', id: 'v-file', name: 'test.ts', value: URI.file('/workspace/test.ts'), _meta: { provider: 'fs', score: 0.42 } }),
+					],
+				},
+			});
+			fire({ type: 'session/turnComplete', session, turnId } as SessionAction);
+			await turnPromise;
+
+			assert.strictEqual(agentHostService.turnActions.length, 1);
+			const turnAction = agentHostService.turnActions[0].action as ITurnStartedAction;
+			assert.deepStrictEqual(turnAction.userMessage.attachments, [
+				{ type: MessageAttachmentKind.Resource, uri: URI.file('/workspace/test.ts').toString(), label: 'test.ts', displayKind: 'document', _meta: { provider: 'fs', score: 0.42 } },
+			]);
+		}));
+
 		test('directory variable with file:// URI becomes directory attachment', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
 			const { sessionHandler, agentHostService, chatAgentService } = createContribution(disposables);
 
@@ -3831,6 +3852,7 @@ suite('AgentHostChatContribution', () => {
 								uri: 'file:///workspace/foo.ts',
 								label: 'foo.ts',
 								displayKind: 'document',
+								_meta: { provider: 'fs', score: 0.42 },
 							},
 						},
 					],
@@ -3852,13 +3874,14 @@ suite('AgentHostChatContribution', () => {
 				items: [
 					{
 						insertText: '@foo.ts',
-						rangeStart: 4,
-						rangeEnd: 8,
+						start: { lineNumber: 1, column: 5 },
+						end: { lineNumber: 1, column: 9 },
 						attachment: {
 							kind: 'resource',
 							uri: URI.parse('file:///workspace/foo.ts'),
 							displayName: 'foo.ts',
 							isDirectory: false,
+							_meta: { provider: 'fs', score: 0.42 },
 						},
 					},
 				],
