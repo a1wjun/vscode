@@ -120,30 +120,16 @@ function createModelItem(
 ): IActionListItem<IActionWidgetDropdownAction> {
 	const hoverContent = model ? getModelHoverContent(model) : undefined;
 
-	let description: string | MarkdownString | undefined = descriptionOverride ?? action.description;
-	if (vendorLabel) {
-		if (!description) {
-			description = vendorLabel;
-		} else if (typeof description === 'string') {
-			description = `${vendorLabel} · ${description}`;
-		} else {
-			// Prepend vendor text to an existing MarkdownString
-			const md = new MarkdownString('', { isTrusted: description.isTrusted, supportThemeIcons: description.supportThemeIcons });
-			md.appendText(vendorLabel + ' · ');
-			md.appendMarkdown(description.value);
-			description = md;
-		}
-	}
-
 	return {
 		item: action,
 		kind: ActionListItemKind.Action,
 		label: action.label,
-		description,
+		description: descriptionOverride ?? action.description,
 		group: { title: '', icon: action.icon ?? ThemeIcon.fromId(action.checked ? Codicon.check.id : Codicon.blank.id) },
 		hideIcon: false,
 		section: action.section,
-		className: vendorLabel ? 'chat-model-recently-used' : undefined,
+		className: vendorLabel ? 'chat-model-picker-inline-source' : undefined,
+		badge: vendorLabel,
 		hover: hoverContent ? { content: hoverContent } : undefined,
 		tooltip: action.tooltip,
 		submenuActions: action.toolbarActions?.length ? action.toolbarActions : undefined,
@@ -269,8 +255,8 @@ function createManageModelsAction(commandService: ICommandService): IActionWidge
  * 2. Promoted section (selected + recently used + featured models from control manifest)
  *    - Available models sorted alphabetically, followed by unavailable models
  *    - Unavailable models show upgrade/update/admin status
- *    - Recently used models show inline vendor label next to the model name
- * 3. Other Models (collapsible toggle) — models grouped by vendor with separator headers
+ *    - Promoted models show an inline source label next to the model name
+ * 3. Other Models (collapsible toggle) - models grouped by vendor with separator headers
  *    - Each vendor group has a titled separator header
  * 4. Optional "Manage Models..." action shown in Other Models after a separator
  */
@@ -565,6 +551,13 @@ export function buildModelPickerItems(
 
 export function getModelPickerAccessibilityProvider() {
 	return {
+		getAriaLabel(element: IActionListItem<IActionWidgetDropdownAction>) {
+			if (element.kind !== ActionListItemKind.Action) {
+				return null;
+			}
+			const description = typeof element.description === 'string' ? element.description : element.description?.value;
+			return [element.label, element.badge, description].filter((part): part is string => !!part).join(', ');
+		},
 		isChecked(element: IActionListItem<IActionWidgetDropdownAction>) {
 			if (element.isSectionToggle) {
 				return undefined;

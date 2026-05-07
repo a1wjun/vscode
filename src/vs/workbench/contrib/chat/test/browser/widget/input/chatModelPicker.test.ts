@@ -120,6 +120,16 @@ suite('buildModelPickerItems', () => {
 		assert.strictEqual(provider.getWidgetRole(), 'menu');
 	});
 
+	test('accessibility provider includes inline source and right-aligned multiplier', () => {
+		const provider = getModelPickerAccessibilityProvider();
+		assert.strictEqual(provider.getAriaLabel({
+			kind: ActionListItemKind.Action,
+			label: 'Claude Opus 4.7',
+			badge: 'Copilot',
+			description: '15x',
+		} as IActionListItem<IActionWidgetDropdownAction>), 'Claude Opus 4.7, Copilot, 15x');
+	});
+
 	test('auto model always appears first', () => {
 		const auto = createAutoModel();
 		const modelA = createModel('gpt-4o', 'GPT-4o');
@@ -826,17 +836,18 @@ suite('buildModelPickerItems', () => {
 	test('promoted models show inline vendor label when multiple vendors exist across all models', () => {
 		const auto = createAutoModel();
 		const modelA = createModel('gpt-4o', 'GPT-4o', 'copilot');
+		modelA.metadata = { ...modelA.metadata, pricing: '15x', multiplierNumeric: 15 } as ILanguageModelChatMetadata;
 		const modelB = createModel('claude', 'Claude', 'anthropic');
 		const items = callBuild([auto, modelA, modelB], {
 			recentModelIds: [modelA.identifier],
 		});
 		const actions = getActionItems(items);
-		// GPT-4o is promoted (recent) and should have vendor label since multiple vendors exist
+		// GPT-4o is promoted (recent) and should show the source inline while keeping multiplier on the right.
 		const gptItem = actions.find(a => a.label === 'GPT-4o');
 		assert.ok(gptItem);
-		assert.strictEqual(gptItem.className, 'chat-model-recently-used');
-		// Description should contain the vendor display name
-		assert.ok(typeof gptItem.description === 'string' && gptItem.description.includes('Copilot'));
+		assert.strictEqual(gptItem.className, 'chat-model-picker-inline-source');
+		assert.strictEqual(gptItem.badge, 'Copilot');
+		assert.strictEqual(gptItem.description, '15x');
 	});
 
 	test('promoted models omit inline vendor label when only one vendor exists', () => {
@@ -851,6 +862,7 @@ suite('buildModelPickerItems', () => {
 		assert.ok(gptItem);
 		// No vendor label since all models are from the same vendor
 		assert.strictEqual(gptItem.className, undefined);
+		assert.strictEqual(gptItem.badge, undefined);
 	});
 
 	test('vendor detail is suppressed in Other Models when multiple vendor groups shown', () => {
