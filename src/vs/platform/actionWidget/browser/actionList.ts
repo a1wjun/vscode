@@ -17,7 +17,7 @@ import { Emitter } from '../../../base/common/event.js';
 import { IMarkdownString, MarkdownString } from '../../../base/common/htmlContent.js';
 import { ResolvedKeybinding } from '../../../base/common/keybindings.js';
 import { AnchorPosition } from '../../../base/common/layout.js';
-import { Disposable, DisposableStore, MutableDisposable, toDisposable } from '../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, IDisposable, MutableDisposable, toDisposable } from '../../../base/common/lifecycle.js';
 import { OS } from '../../../base/common/platform.js';
 import { ThemeIcon } from '../../../base/common/themables.js';
 import { URI } from '../../../base/common/uri.js';
@@ -47,9 +47,13 @@ export interface IActionListDelegate<T> {
  */
 export interface IActionListItemHover {
 	/**
-	 * Content to display in the hover.
+	 * Content to display in the hover. Can be a markdown string or an HTMLElement for full DOM control.
 	 */
-	readonly content?: string | MarkdownString;
+	readonly content?: string | MarkdownString | HTMLElement;
+	/**
+	 * Optional disposable associated with the hover content (e.g. from rendered markdown).
+	 */
+	readonly disposable?: IDisposable;
 }
 
 export interface IActionListItem<T> {
@@ -478,6 +482,12 @@ export interface IActionListOptions {
 	 * instead of aligned to the right.
 	 */
 	readonly inlineDescription?: boolean;
+
+	/**
+	 * Height (in px) used for action items that have a `detail` line.
+	 * Defaults to 48.
+	 */
+	readonly detailItemHeight?: number;
 
 	/**
 	 * When true, the group title is shown on the first item of each group
@@ -1042,7 +1052,7 @@ export class ActionListWidget<T> extends Disposable {
 			case ActionListItemKind.Separator:
 				return item.label ? this._actionLineHeight : this._separatorLineHeight;
 			default:
-				return item.detail ? 48 : this._actionLineHeight;
+				return item.detail ? (this._options?.detailItemHeight ?? 48) : this._actionLineHeight;
 		}
 	}
 
@@ -1397,20 +1407,27 @@ export class ActionListWidget<T> extends Disposable {
 		let hoverHeader: HTMLElement | undefined;
 		const hoverContent = element.hover?.content;
 		if (hoverContent) {
-			const markdown = typeof hoverContent === 'string' ? new MarkdownString(hoverContent) : hoverContent;
-			const linkHandler = this._options?.linkHandler;
-			const rendered = renderMarkdown(markdown, {
-				actionHandler: (url: string) => {
-					const uri = URI.parse(url);
-					if (linkHandler) {
-						linkHandler(uri, element);
-					} else {
-						this._openerService.open(uri, { allowCommands: true });
-					}
-				},
-			});
-			this._submenuDisposables.add(rendered);
-			hoverHeader = rendered.element;
+			if (dom.isHTMLElement(hoverContent)) {
+				hoverHeader = hoverContent;
+				if (element.hover?.disposable) {
+					this._submenuDisposables.add(element.hover.disposable);
+				}
+			} else {
+				const markdown = typeof hoverContent === 'string' ? new MarkdownString(hoverContent) : hoverContent;
+				const linkHandler = this._options?.linkHandler;
+				const rendered = renderMarkdown(markdown, {
+					actionHandler: (url: string) => {
+						const uri = URI.parse(url);
+						if (linkHandler) {
+							linkHandler(uri, element);
+						} else {
+							this._openerService.open(uri, { allowCommands: true });
+						}
+					},
+				});
+				this._submenuDisposables.add(rendered);
+				hoverHeader = rendered.element;
+			}
 			hoverHeader.classList.add('action-list-submenu-hover-header');
 			if (element.submenuActions?.length) {
 				hoverHeader.classList.add('has-submenu');
