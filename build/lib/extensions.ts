@@ -430,6 +430,7 @@ function doPackageLocalExtensionsStream(forWeb: boolean, disableMangle: boolean,
 			.filter(({ name }) => builtInExtensions.every(b => b.name !== name))
 			.filter(({ manifestPath }) => (forWeb ? isWebExtension(require(manifestPath)) : true))
 	);
+console.log('localExtensionsDescriptions', localExtensionsDescriptions);
 	const localExtensionsStream = minifyExtensionResources(
 		es.merge(
 			...localExtensionsDescriptions.map(extension => {
@@ -446,7 +447,7 @@ function doPackageLocalExtensionsStream(forWeb: boolean, disableMangle: boolean,
 		// also include shared production node modules
 		const productionDependencies = getProductionDependencies('extensions/');
 		const dependenciesSrc = productionDependencies.map(d => path.relative(root, d)).map(d => [`${d}/**`, `!${d}/**/{test,tests}/**`]).flat();
-
+console.log('glob', dependenciesSrc);
 		result = es.merge(
 			localExtensionsStream,
 			gulp.src(dependenciesSrc, { base: '.' })
