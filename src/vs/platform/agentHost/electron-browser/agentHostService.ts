@@ -6,6 +6,7 @@
 import { DeferredPromise } from '../../../base/common/async.js';
 import { Emitter } from '../../../base/common/event.js';
 import { Disposable, DisposableStore, IReference } from '../../../base/common/lifecycle.js';
+import type { CancellationToken } from '../../../base/common/cancellation.js';
 import { IObservable, ISettableObservable, observableValue } from '../../../base/common/observable.js';
 import { generateUuid } from '../../../base/common/uuid.js';
 import { getDelayedChannel, ProxyChannel } from '../../../base/parts/ipc/common/ipc.js';
@@ -152,9 +153,13 @@ class AgentHostServiceClient extends Disposable implements IAgentHostService {
 	sessionConfigCompletions(params: IAgentSessionConfigCompletionsParams): Promise<SessionConfigCompletionsResult> {
 		return this._proxy.sessionConfigCompletions(params);
 	}
-	completions(params: CompletionsParams): Promise<CompletionsResult> {
-		return this._proxy.completions(params);
+	completions(params: CompletionsParams, token?: CancellationToken): Promise<CompletionsResult> {
+		return this._proxy.completions(params, token);
 	}
+	getCompletionTriggerCharacters(): Promise<readonly string[]> {
+		return this._completionTriggerCharactersOnce ??= this._proxy.getCompletionTriggerCharacters();
+	}
+	private _completionTriggerCharactersOnce: Promise<readonly string[]> | undefined;
 	disposeSession(session: URI): Promise<void> {
 		return this._proxy.disposeSession(session);
 	}

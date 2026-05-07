@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import type { CancellationToken } from '../../../base/common/cancellation.js';
 import { Event } from '../../../base/common/event.js';
 import { IReference } from '../../../base/common/lifecycle.js';
 import { IAuthorizationProtectedResourceMetadata } from '../../../base/common/oauth.js';
@@ -15,7 +16,7 @@ import type { CompletionsParams, CompletionsResult, CreateTerminalParams, Resolv
 import { ProtectedResourceMetadata, type ConfigSchema, type FileEdit, type ModelSelection, type SessionActiveClient, type ToolCallPendingConfirmationState, type ToolDefinition } from './state/protocol/state.js';
 import type { ActionEnvelope, INotification, IRootConfigChangedAction, SessionAction, TerminalAction } from './state/sessionActions.js';
 import type { ResourceCopyParams, ResourceCopyResult, ResourceDeleteParams, ResourceDeleteResult, ResourceListResult, ResourceMoveParams, ResourceMoveResult, ResourceReadResult, ResourceWriteParams, ResourceWriteResult, IStateSnapshot } from './state/sessionProtocol.js';
-import { AttachmentType, ComponentToState, SessionInputResponseKind, SessionStatus, StateComponents, type CustomizationRef, type PendingMessage, type RootState, type SessionCustomization, type SessionInputAnswer, type SessionMeta, type ToolCallResult, type Turn, type PolicyState } from './state/sessionState.js';
+import { ComponentToState, SessionInputResponseKind, SessionStatus, StateComponents, type CustomizationRef, type PendingMessage, type RootState, type SessionCustomization, type SessionInputAnswer, type SessionMeta, type ToolCallResult, type Turn, type PolicyState } from './state/sessionState.js';
 
 // IPC contract between the renderer and the agent host utility process.
 // Defines all serializable event types, the IAgent provider interface,
@@ -245,9 +246,21 @@ export interface IAgentSessionConfigCompletionsParams extends IAgentResolveSessi
 	readonly query?: string;
 }
 
+/**
+ * Internal classification of an {@link IAgentAttachment} as understood by
+ * agent providers in the agent host process. Mapped to/from the protocol's
+ * richer {@link import('./state/protocol/state.js').MessageAttachment} shape
+ * by {@link agentSideEffects} on the wire boundary.
+ */
+export const enum AgentAttachmentKind {
+	File = 'file',
+	Directory = 'directory',
+	Selection = 'selection',
+}
+
 /** Serializable attachment passed alongside a message to the agent host. */
 export interface IAgentAttachment {
-	readonly type: AttachmentType;
+	readonly type: AgentAttachmentKind;
 	readonly uri: URI;
 	readonly displayName?: string;
 	/** For selections: the selected text. */
@@ -605,7 +618,14 @@ export interface IAgentService {
 	 * set of {@link IAgentHostCompletionItemProvider}s registered with the
 	 * agent host.
 	 */
-	completions(params: CompletionsParams): Promise<CompletionsResult>;
+	completions(params: CompletionsParams, token?: CancellationToken): Promise<CompletionsResult>;
+
+	/**
+	 * Returns the set of characters that, when typed in a {@link UserMessage}
+	 * input, SHOULD cause the client to issue a `completions` request.
+	 * Aggregated from every registered {@link IAgentHostCompletionItemProvider}.
+	 */
+	getCompletionTriggerCharacters(): Promise<readonly string[]>;
 
 	/** Dispose a session in the agent host, freeing SDK resources. */
 	disposeSession(session: URI): Promise<void>;
@@ -730,7 +750,14 @@ export interface IAgentConnection {
 	createSession(config?: IAgentCreateSessionConfig): Promise<URI>;
 	resolveSessionConfig(params: IAgentResolveSessionConfigParams): Promise<ResolveSessionConfigResult>;
 	sessionConfigCompletions(params: IAgentSessionConfigCompletionsParams): Promise<SessionConfigCompletionsResult>;
-	completions(params: CompletionsParams): Promise<CompletionsResult>;
+	completions(params: CompletionsParams, token?: CancellationToken): Promise<CompletionsResult>;
+
+	/**
+	 * Trigger characters announced by the connected agent host that should
+	 * cause the client to issue a `completions` request when typed in a
+	 * user-message input. Resolves once on first request and is cached.
+	 */
+	getCompletionTriggerCharacters(): Promise<readonly string[]>;
 	disposeSession(session: URI): Promise<void>;
 
 	// ---- Terminal lifecycle -------------------------------------------------

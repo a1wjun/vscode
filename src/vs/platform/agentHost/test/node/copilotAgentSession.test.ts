@@ -16,11 +16,11 @@ import { IFileService } from '../../../files/common/files.js';
 import { InstantiationService } from '../../../instantiation/common/instantiationService.js';
 import { ServiceCollection } from '../../../instantiation/common/serviceCollection.js';
 import { ILogService, NullLogService } from '../../../log/common/log.js';
-import { AgentSession, type AgentSignal, type IAgentActionSignal, type IAgentToolPendingConfirmationSignal } from '../../common/agentService.js';
+import { AgentSession, type AgentSignal, type IAgentActionSignal, type IAgentToolPendingConfirmationSignal, AgentAttachmentKind } from '../../common/agentService.js';
 import { IDiffComputeService } from '../../common/diffComputeService.js';
 import { ISessionDataService } from '../../common/sessionDataService.js';
 import { ActionType, type SessionDeltaAction, type SessionErrorAction, type SessionInputRequestedAction, type SessionResponsePartAction, type SessionToolCallCompleteAction, type SessionToolCallReadyAction, type SessionToolCallStartAction } from '../../common/state/sessionActions.js';
-import { AttachmentType, ResponsePartKind, SessionInputAnswerState, SessionInputAnswerValueKind, SessionInputQuestionKind, SessionInputResponseKind, ToolResultContentType } from '../../common/state/sessionState.js';
+import { ResponsePartKind, SessionInputAnswerState, SessionInputAnswerValueKind, SessionInputQuestionKind, SessionInputResponseKind, ToolResultContentType } from '../../common/state/sessionState.js';
 import { CopilotAgentSession, IActiveClientSnapshot, SessionWrapperFactory } from '../../node/copilot/copilotAgentSession.js';
 import { CopilotSessionWrapper } from '../../node/copilot/copilotSessionWrapper.js';
 import { IAgentConfigurationService } from '../../node/agentConfigurationService.js';
@@ -251,8 +251,8 @@ suite('CopilotAgentSession', () => {
 		const selectionUri = URI.file('/workspace/selection.ts');
 
 		await session.send('hello', [
-			{ type: AttachmentType.File, uri: fileUri, displayName: 'file.ts' },
-			{ type: AttachmentType.Selection, uri: selectionUri, displayName: 'selection.ts' },
+			{ type: AgentAttachmentKind.File, uri: fileUri, displayName: 'file.ts' },
+			{ type: AgentAttachmentKind.Selection, uri: selectionUri, displayName: 'selection.ts' },
 		]);
 
 		assert.deepStrictEqual(mockSession.sendRequests, [{

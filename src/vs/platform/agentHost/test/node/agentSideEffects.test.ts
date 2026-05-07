@@ -17,12 +17,12 @@ import { InMemoryFileSystemProvider } from '../../../files/common/inMemoryFilesy
 import { InstantiationService } from '../../../instantiation/common/instantiationService.js';
 import { ServiceCollection } from '../../../instantiation/common/serviceCollection.js';
 import { ILogService, NullLogService } from '../../../log/common/log.js';
-import { AgentSession, IAgent } from '../../common/agentService.js';
+import { AgentAttachmentKind, AgentSession, IAgent } from '../../common/agentService.js';
 import { ISessionDataService } from '../../common/sessionDataService.js';
 import type { RootConfigChangedAction } from '../../common/state/protocol/actions.js';
 import { CustomizationStatus } from '../../common/state/protocol/state.js';
 import { ActionType, ActionEnvelope, SessionAction } from '../../common/state/sessionActions.js';
-import { AttachmentType, buildSubagentSessionUri, PendingMessageKind, ResponsePartKind, SessionStatus, ToolCallConfirmationReason, ToolCallStatus, ToolResultContentType } from '../../common/state/sessionState.js';
+import { MessageAttachmentKind, buildSubagentSessionUri, PendingMessageKind, ResponsePartKind, SessionStatus, ToolCallConfirmationReason, ToolCallStatus, ToolResultContentType } from '../../common/state/sessionState.js';
 import { IProductService } from '../../../product/common/productService.js';
 import { AgentConfigurationService, IAgentConfigurationService } from '../../node/agentConfigurationService.js';
 import { IAgentHostGitService } from '../../node/agentHostGitService.js';
@@ -137,7 +137,7 @@ suite('AgentSideEffects', () => {
 				type: ActionType.SessionTurnStarted,
 				session: sessionUri.toString(),
 				turnId: 'turn-1',
-				userMessage: { text: 'hello world', attachments: [{ type: AttachmentType.File, uri: fileUri.toString(), displayName: 'test.ts' }] },
+				userMessage: { text: 'hello world', attachments: [{ type: MessageAttachmentKind.Resource, uri: fileUri.toString(), label: 'test.ts', displayKind: 'document' }] },
 			};
 
 			sideEffects.handleAction(action);
@@ -145,7 +145,7 @@ suite('AgentSideEffects', () => {
 			assert.deepStrictEqual(agent.sendMessageCalls, [{
 				session: URI.parse(sessionUri.toString()),
 				prompt: 'hello world',
-				attachments: [{ type: AttachmentType.File, uri: URI.parse(fileUri.toString()), displayName: 'test.ts' }],
+				attachments: [{ type: AgentAttachmentKind.File, uri: URI.parse(fileUri.toString()), displayName: 'test.ts', text: undefined, selection: undefined }],
 			}]);
 		});
 
@@ -520,7 +520,7 @@ suite('AgentSideEffects', () => {
 				session: sessionUri.toString(),
 				kind: PendingMessageKind.Queued,
 				id: 'q-uri',
-				userMessage: { text: 'queued message', attachments: [{ type: AttachmentType.File, uri: fileUri.toString(), displayName: 'queued.ts' }] },
+				userMessage: { text: 'queued message', attachments: [{ type: MessageAttachmentKind.Resource, uri: fileUri.toString(), label: 'queued.ts', displayKind: 'document' }] },
 			};
 
 			stateManager.dispatchClientAction(action, { clientId: 'test', clientSeq: 1 });
@@ -529,7 +529,7 @@ suite('AgentSideEffects', () => {
 			assert.deepStrictEqual(agent.sendMessageCalls, [{
 				session: URI.parse(sessionUri.toString()),
 				prompt: 'queued message',
-				attachments: [{ type: AttachmentType.File, uri: URI.parse(fileUri.toString()), displayName: 'queued.ts' }],
+				attachments: [{ type: AgentAttachmentKind.File, uri: URI.parse(fileUri.toString()), displayName: 'queued.ts', text: undefined, selection: undefined }],
 			}]);
 		});
 

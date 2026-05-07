@@ -19,7 +19,8 @@ import { IAgentCreateSessionConfig, IAgentHostService, IAgentSessionMetadata, Ag
 import { ActionType, isSessionAction, type ActionEnvelope, type IRootConfigChangedAction, type SessionAction, type TerminalAction, type INotification, type IToolCallConfirmedAction, type ITurnStartedAction } from '../../../../../../platform/agentHost/common/state/sessionActions.js';
 import type { IStateSnapshot } from '../../../../../../platform/agentHost/common/state/sessionProtocol.js';
 import type { CustomizationRef } from '../../../../../../platform/agentHost/common/state/protocol/state.js';
-import { SessionInputAnswerState, SessionInputAnswerValueKind, SessionInputQuestionKind, SessionInputResponseKind, SessionLifecycle, SessionStatus, TurnState, ToolCallStatus, ToolCallConfirmationReason, createSessionState, createActiveTurn, ROOT_STATE_URI, PolicyState, ResponsePartKind, StateComponents, buildSubagentSessionUri, ToolResultContentType, type SessionState, type SessionSummary, RootState, type ToolCallState, type AgentInfo } from '../../../../../../platform/agentHost/common/state/sessionState.js';
+import { SessionInputAnswerState, SessionInputAnswerValueKind, SessionInputQuestionKind, SessionInputResponseKind, SessionLifecycle, SessionStatus, TurnState, ToolCallStatus, ToolCallConfirmationReason, createSessionState, createActiveTurn, ROOT_STATE_URI, PolicyState, ResponsePartKind, StateComponents, buildSubagentSessionUri, ToolResultContentType, MessageAttachmentKind, type SessionState, type SessionSummary, RootState, type ToolCallState, type AgentInfo } from '../../../../../../platform/agentHost/common/state/sessionState.js';
+import { CompletionItemKind as AhpCompletionItemKind, type CompletionsParams, type CompletionsResult } from '../../../../../../platform/agentHost/common/state/protocol/commands.js';
 import { sessionReducer } from '../../../../../../platform/agentHost/common/state/sessionReducers.js';
 import { IDefaultAccountService } from '../../../../../../platform/defaultAccount/common/defaultAccount.js';
 import { IAuthenticationService } from '../../../../../services/authentication/common/authentication.js';
@@ -2225,7 +2226,7 @@ suite('AgentHostChatContribution', () => {
 			assert.strictEqual(agentHostService.turnActions.length, 1);
 			const turnAction = agentHostService.turnActions[0].action as ITurnStartedAction;
 			assert.deepStrictEqual(turnAction.userMessage.attachments, [
-				{ type: 'file', uri: URI.file('/workspace/test.ts').toString(), displayName: 'test.ts' },
+				{ type: MessageAttachmentKind.Resource, uri: URI.file('/workspace/test.ts').toString(), label: 'test.ts', displayKind: 'document' },
 			]);
 		}));
 
@@ -2246,7 +2247,7 @@ suite('AgentHostChatContribution', () => {
 			assert.strictEqual(agentHostService.turnActions.length, 1);
 			const turnAction = agentHostService.turnActions[0].action as ITurnStartedAction;
 			assert.deepStrictEqual(turnAction.userMessage.attachments, [
-				{ type: 'directory', uri: URI.file('/workspace/src').toString(), displayName: 'src' },
+				{ type: MessageAttachmentKind.Resource, uri: URI.file('/workspace/src').toString(), label: 'src', displayKind: 'directory' },
 			]);
 		}));
 
@@ -2267,7 +2268,7 @@ suite('AgentHostChatContribution', () => {
 			assert.strictEqual(agentHostService.turnActions.length, 1);
 			const turnAction = agentHostService.turnActions[0].action as ITurnStartedAction;
 			assert.deepStrictEqual(turnAction.userMessage.attachments, [
-				{ type: 'selection', uri: URI.file('/workspace/foo.ts').toString(), displayName: 'selection' },
+				{ type: MessageAttachmentKind.Resource, uri: URI.file('/workspace/foo.ts').toString(), label: 'selection', displayKind: 'selection' },
 			]);
 		}));
 
@@ -2330,8 +2331,8 @@ suite('AgentHostChatContribution', () => {
 			assert.strictEqual(agentHostService.turnActions.length, 1);
 			const turnAction = agentHostService.turnActions[0].action as ITurnStartedAction;
 			assert.deepStrictEqual(turnAction.userMessage.attachments, [
-				{ type: 'file', uri: URI.file('/workspace/a.ts').toString(), displayName: 'a.ts' },
-				{ type: 'directory', uri: URI.file('/workspace/lib').toString(), displayName: 'lib' },
+				{ type: MessageAttachmentKind.Resource, uri: URI.file('/workspace/a.ts').toString(), label: 'a.ts', displayKind: 'document' },
+				{ type: MessageAttachmentKind.Resource, uri: URI.file('/workspace/lib').toString(), label: 'lib', displayKind: 'directory' },
 			]);
 		}));
 
@@ -2380,9 +2381,9 @@ suite('AgentHostChatContribution', () => {
 			assert.strictEqual(agentHostService.turnActions.length, 1);
 			const turnAction = agentHostService.turnActions[0].action as ITurnStartedAction;
 			assert.deepStrictEqual(turnAction.userMessage.attachments, [
-				{ type: 'file', uri: URI.file('/worktree/a.ts').toString(), displayName: 'a.ts' },
-				{ type: 'directory', uri: URI.file('/worktree/lib').toString(), displayName: 'lib' },
-				{ type: 'selection', uri: URI.file('/worktree/sub/foo.ts').toString(), displayName: 'selection' },
+				{ type: MessageAttachmentKind.Resource, uri: URI.file('/worktree/a.ts').toString(), label: 'a.ts', displayKind: 'document' },
+				{ type: MessageAttachmentKind.Resource, uri: URI.file('/worktree/lib').toString(), label: 'lib', displayKind: 'directory' },
+				{ type: MessageAttachmentKind.Resource, uri: URI.file('/worktree/sub/foo.ts').toString(), label: 'selection', displayKind: 'selection' },
 			]);
 		}));
 
@@ -2407,7 +2408,7 @@ suite('AgentHostChatContribution', () => {
 			assert.strictEqual(agentHostService.turnActions.length, 1);
 			const turnAction = agentHostService.turnActions[0].action as ITurnStartedAction;
 			assert.deepStrictEqual(turnAction.userMessage.attachments, [
-				{ type: 'file', uri: URI.file('/source/a.ts').toString(), displayName: 'a.ts' },
+				{ type: MessageAttachmentKind.Resource, uri: URI.file('/source/a.ts').toString(), label: 'a.ts', displayKind: 'document' },
 			]);
 		}));
 
@@ -2433,7 +2434,7 @@ suite('AgentHostChatContribution', () => {
 			assert.strictEqual(agentHostService.turnActions.length, 1);
 			const turnAction = agentHostService.turnActions[0].action as ITurnStartedAction;
 			assert.deepStrictEqual(turnAction.userMessage.attachments, [
-				{ type: 'file', uri: URI.file('/elsewhere/elsewhere.ts').toString(), displayName: 'elsewhere.ts' },
+				{ type: MessageAttachmentKind.Resource, uri: URI.file('/elsewhere/elsewhere.ts').toString(), label: 'elsewhere.ts', displayKind: 'document' },
 			]);
 		}));
 	});
@@ -3708,6 +3709,117 @@ suite('AgentHostChatContribution', () => {
 			await timeout(0);
 
 			assert.deepStrictEqual(agentHostService.authenticateCalls, []);
+		});
+	});
+
+	// ---- Chat input completions delegation -----------------------------
+
+	suite('provideChatInputCompletions', () => {
+
+		test('forwards text/offset to the agent host and maps file attachments back to chat input items', async () => {
+			const { sessionHandler, agentHostService } = createContribution(disposables);
+
+			const calls: CompletionsParams[] = [];
+			(agentHostService as unknown as { completions: (p: CompletionsParams) => Promise<CompletionsResult> }).completions = async (params) => {
+				calls.push(params);
+				return {
+					items: [
+						{
+							insertText: '@foo.ts',
+							rangeStart: 4,
+							rangeEnd: 8,
+							attachment: {
+								type: MessageAttachmentKind.Resource,
+								uri: 'file:///workspace/foo.ts',
+								label: 'foo.ts',
+								displayKind: 'document',
+							},
+						},
+					],
+				};
+			};
+
+			const sessionResource = URI.from({ scheme: 'agent-host-copilot', path: '/abc' });
+			const result = await sessionHandler.provideChatInputCompletions(
+				sessionResource,
+				{ text: 'see @foo', offset: 8 },
+				CancellationToken.None,
+			);
+
+			assert.strictEqual(calls.length, 1);
+			assert.strictEqual(calls[0].kind, AhpCompletionItemKind.UserMessage);
+			assert.strictEqual(calls[0].text, 'see @foo');
+			assert.strictEqual(calls[0].offset, 8);
+			assert.deepStrictEqual(result, {
+				items: [
+					{
+						insertText: '@foo.ts',
+						rangeStart: 4,
+						rangeEnd: 8,
+						attachment: {
+							kind: 'resource',
+							uri: URI.parse('file:///workspace/foo.ts'),
+							displayName: 'foo.ts',
+							isDirectory: false,
+						},
+					},
+				],
+			});
+		});
+
+		test('skips attachments of unsupported kinds', async () => {
+			const { sessionHandler, agentHostService } = createContribution(disposables);
+
+			(agentHostService as unknown as { completions: (p: CompletionsParams) => Promise<CompletionsResult> }).completions = async () => ({
+				items: [
+					{
+						insertText: '@dir/',
+						attachment: {
+							type: MessageAttachmentKind.Resource,
+							uri: 'file:///workspace/dir',
+							label: 'dir',
+							displayKind: 'directory',
+						},
+					},
+					{
+						insertText: '@image.png',
+						attachment: {
+							type: MessageAttachmentKind.EmbeddedResource,
+							label: 'image.png',
+							data: 'AAAA',
+							contentType: 'image/png',
+						},
+					},
+				],
+			});
+
+			const sessionResource = URI.from({ scheme: 'agent-host-copilot', path: '/abc' });
+			const result = await sessionHandler.provideChatInputCompletions(
+				sessionResource,
+				{ text: '@', offset: 1 },
+				CancellationToken.None,
+			);
+
+			assert.strictEqual(result?.items.length, 1);
+			assert.strictEqual(result?.items[0].attachment.kind, 'resource');
+			assert.strictEqual(result?.items[0].attachment.isDirectory, true);
+			assert.strictEqual(result?.items[0].attachment.uri.toString(), 'file:///workspace/dir');
+		});
+
+		test('returns undefined when the request is cancelled', async () => {
+			const { sessionHandler, agentHostService } = createContribution(disposables);
+
+			(agentHostService as unknown as { completions: (p: CompletionsParams) => Promise<CompletionsResult> }).completions = async () => ({ items: [] });
+
+			const cts = new CancellationTokenSource();
+			cts.cancel();
+			const result = await sessionHandler.provideChatInputCompletions(
+				URI.from({ scheme: 'agent-host-copilot', path: '/abc' }),
+				{ text: '', offset: 0 },
+				cts.token,
+			);
+			cts.dispose();
+			assert.strictEqual(result, undefined);
 		});
 	});
 });

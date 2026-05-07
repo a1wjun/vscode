@@ -5,8 +5,7 @@
 
 import type Anthropic from '@anthropic-ai/sdk';
 import { URI } from '../../../../base/common/uri.js';
-import { IAgentAttachment } from '../../common/agentService.js';
-import { AttachmentType } from '../../common/state/sessionState.js';
+import { AgentAttachmentKind, IAgentAttachment } from '../../common/agentService.js';
 
 /**
  * Build the {@link Anthropic.ContentBlockParam}[] payload for an
@@ -39,11 +38,11 @@ export function resolvePromptToContentBlocks(
 	const refLines: string[] = [];
 	for (const att of attachments) {
 		switch (att.type) {
-			case AttachmentType.File:
-			case AttachmentType.Directory:
+			case AgentAttachmentKind.File:
+			case AgentAttachmentKind.Directory:
 				refLines.push(`- ${uriToString(att.uri)}`);
 				break;
-			case AttachmentType.Selection: {
+			case AgentAttachmentKind.Selection: {
 				const line = att.selection ? `:${att.selection.start.line + 1}` : '';
 				refLines.push(`- ${uriToString(att.uri)}${line}`);
 				if (att.text) {

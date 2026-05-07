@@ -32,9 +32,9 @@ import { IInstantiationService } from '../../../instantiation/common/instantiati
 import { ILogService, NullLogService } from '../../../log/common/log.js';
 import { IProductService } from '../../../product/common/productService.js';
 import { FileService } from '../../../files/common/fileService.js';
-import { IAgentMaterializeSessionEvent, AgentSession, AgentSignal, GITHUB_COPILOT_PROTECTED_RESOURCE } from '../../common/agentService.js';
+import { IAgentMaterializeSessionEvent, AgentAttachmentKind, AgentSession, AgentSignal, GITHUB_COPILOT_PROTECTED_RESOURCE } from '../../common/agentService.js';
 import { ActionType } from '../../common/state/sessionActions.js';
-import { ResponsePartKind, AttachmentType } from '../../common/state/sessionState.js';
+import { ResponsePartKind } from '../../common/state/sessionState.js';
 import { ISessionDataService } from '../../common/sessionDataService.js';
 import { IAgentHostGitService } from '../../node/agentHostGitService.js';
 import { ClaudeAgent } from '../../node/claude/claudeAgent.js';
@@ -1786,8 +1786,8 @@ suite('ClaudeAgent', () => {
 		const fileUri = URI.file('/work/src/foo.ts');
 		const dirUri = URI.file('/work/src/bar');
 		await agent.sendMessage(created.session, 'review please', [
-			{ type: AttachmentType.File, uri: fileUri, displayName: 'foo.ts' },
-			{ type: AttachmentType.Directory, uri: dirUri, displayName: 'bar' },
+			{ type: AgentAttachmentKind.File, uri: fileUri, displayName: 'foo.ts' },
+			{ type: AgentAttachmentKind.Directory, uri: dirUri, displayName: 'bar' },
 		], 'turn-1');
 
 		const drained = sdk.warmQueries[0]?.produced?.drainedPrompts ?? [];

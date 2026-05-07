@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Event } from '../../../base/common/event.js';
+import type { CancellationToken } from '../../../base/common/cancellation.js';
 import { IReference } from '../../../base/common/lifecycle.js';
 import { constObservable, IObservable } from '../../../base/common/observable.js';
 import { URI } from '../../../base/common/uri.js';
@@ -44,7 +45,8 @@ export class NullAgentHostService implements IAgentHostService {
 	async createSession(_config?: IAgentCreateSessionConfig): Promise<URI> { return notSupported(); }
 	async resolveSessionConfig(_params: IAgentResolveSessionConfigParams): Promise<ResolveSessionConfigResult> { return notSupported(); }
 	async sessionConfigCompletions(_params: IAgentSessionConfigCompletionsParams): Promise<SessionConfigCompletionsResult> { return notSupported(); }
-	async completions(_params: CompletionsParams): Promise<CompletionsResult> { return { items: [] }; }
+	async completions(_params: CompletionsParams, _token?: CancellationToken): Promise<CompletionsResult> { return { items: [] }; }
+	async getCompletionTriggerCharacters(): Promise<readonly string[]> { return []; }
 	async startWebSocketServer(): Promise<IAgentHostSocketInfo> { return notSupported(); }
 	async getInspectInfo(_tryEnable: boolean): Promise<IAgentHostInspectInfo | undefined> { return undefined; }
 	async disposeSession(_session: URI): Promise<void> { }

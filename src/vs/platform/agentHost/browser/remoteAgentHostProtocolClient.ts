@@ -9,6 +9,7 @@
 
 import { DeferredPromise } from '../../../base/common/async.js';
 import { CancellationError } from '../../../base/common/errors.js';
+import type { CancellationToken } from '../../../base/common/cancellation.js';
 import { Emitter } from '../../../base/common/event.js';
 import { Disposable, IReference } from '../../../base/common/lifecycle.js';
 import { Schemas } from '../../../base/common/network.js';
@@ -64,6 +65,7 @@ export class RemoteAgentHostProtocolClient extends Disposable implements IAgentC
 	private _serverSeq = 0;
 	private _nextClientSeq = 1;
 	private _defaultDirectory: string | undefined;
+	private _completionTriggerCharacters: readonly string[] = [];
 	private readonly _subscriptionManager: AgentSubscriptionManager;
 
 	private readonly _onDidAction = this._register(new Emitter<ActionEnvelope>());
@@ -164,6 +166,8 @@ export class RemoteAgentHostProtocolClient extends Disposable implements IAgentC
 				this._defaultDirectory = URI.revive(dir).path;
 			}
 		}
+
+		this._completionTriggerCharacters = result.completionTriggerCharacters ?? [];
 	}
 
 	// ---- IAgentConnection subscription API ----------------------------------
@@ -249,8 +253,16 @@ export class RemoteAgentHostProtocolClient extends Disposable implements IAgentC
 		});
 	}
 
-	async completions(params: CompletionsParams): Promise<CompletionsResult> {
+	async completions(params: CompletionsParams, _token?: CancellationToken): Promise<CompletionsResult> {
 		return this._sendRequest('completions', params);
+	}
+
+	/**
+	 * Returns the trigger characters captured from the `initialize` handshake.
+	 * Empty when the remote host did not announce any.
+	 */
+	async getCompletionTriggerCharacters(): Promise<readonly string[]> {
+		return this._completionTriggerCharacters;
 	}
 
 	/**
