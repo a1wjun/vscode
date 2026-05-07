@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import type { PermissionRequestResult, SessionConfig, Tool, ToolResultObject } from '@github/copilot-sdk';
+import type { MessageOptions, PermissionRequestResult, SessionConfig, Tool, ToolResultObject } from '@github/copilot-sdk';
 import { DeferredPromise } from '../../../../base/common/async.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { Emitter } from '../../../../base/common/event.js';
@@ -19,11 +19,11 @@ import { IFileService } from '../../../files/common/files.js';
 import { IInstantiationService } from '../../../instantiation/common/instantiation.js';
 import { ILogService } from '../../../log/common/log.js';
 import { platformSessionSchema } from '../../common/agentHostSchema.js';
-import { AgentSignal, IAgentAttachment } from '../../common/agentService.js';
+import { AgentSignal } from '../../common/agentService.js';
 import { stripRedundantCdPrefix } from '../../common/commandLineHelpers.js';
 import { SessionConfigKey } from '../../common/sessionConfigKeys.js';
 import { ISessionDatabase, ISessionDataService } from '../../common/sessionDataService.js';
-import type { FileEdit, ToolDefinition } from '../../common/state/protocol/state.js';
+import { MessageAttachmentKind, type FileEdit, type MessageAttachment, type ToolDefinition } from '../../common/state/protocol/state.js';
 import { ActionType, type SessionAction } from '../../common/state/sessionActions.js';
 import { ResponsePartKind, SessionInputAnswerState, SessionInputAnswerValueKind, SessionInputQuestionKind, SessionInputResponseKind, ToolCallConfirmationReason, ToolCallStatus, ToolResultContentType, type PendingMessage, type URI as ProtocolURI, type SessionInputAnswer, type SessionInputRequest, type ToolCallResult, type ToolResultContent, type Turn } from '../../common/state/sessionState.js';
 import { IAgentConfigurationService } from '../agentConfigurationService.js';
@@ -162,6 +162,40 @@ export interface ICopilotAgentSessionOptions {
 	readonly customizationDirectory?: URI;
 	/** Snapshot of the active client's tools and plugins at session creation time. */
 	readonly clientSnapshot?: IActiveClientSnapshot;
+}
+
+type CopilotSdkAttachment = Required<MessageOptions>['attachments'][0];
+
+/**
+ * Translate a protocol {@link MessageAttachment} into the
+ * Copilot CLI SDK's `attachments` payload shape.
+ *
+ * Only resource attachments are forwarded \u2014 simple and embedded resources
+ * are dropped because the CLI SDK does not consume them. The display kind
+ * controls whether a resource is treated as a file, directory, or a
+ * selection that carries an inline range and text.
+ */
+function convertToSdkAttachment(attachment: MessageAttachment): CopilotSdkAttachment | undefined {
+	if (attachment.type !== MessageAttachmentKind.Resource) {
+		return undefined;
+	}
+	const uri = URI.parse(attachment.uri);
+	const path = uri.scheme === 'file' ? uri.fsPath : uri.toString();
+	const displayName = attachment.label ?? path;
+	if (attachment.displayKind === 'selection') {
+		const selection = attachment.selection;
+		return {
+			type: 'selection',
+			filePath: path,
+			displayName,
+			text: selection?.value,
+			selection: selection
+				? { start: selection.range.start, end: selection.range.end }
+				: undefined,
+		};
+	}
+	const type = attachment.displayKind === 'directory' ? 'directory' : 'file';
+	return { type, path, displayName };
 }
 
 /**
@@ -504,21 +538,17 @@ export class CopilotAgentSession extends Disposable {
 
 	// ---- session operations -------------------------------------------------
 
-	async send(prompt: string, attachments?: IAgentAttachment[], turnId?: string, mode?: CopilotSdkMode): Promise<void> {
+	async send(prompt: string, attachments?: readonly MessageAttachment[], turnId?: string, mode?: CopilotSdkMode): Promise<void> {
 		if (turnId) {
 			this._turnId = turnId;
 		}
 		this._logService.info(`[Copilot:${this.sessionId}] sendMessage called: "${prompt.substring(0, 100)}${prompt.length > 100 ? '...' : ''}" (${attachments?.length ?? 0} attachments)`);
 
-		const sdkAttachments = attachments?.map(a => {
-			const path = a.uri.scheme === 'file' ? a.uri.fsPath : a.uri.toString();
-			if (a.type === 'selection') {
-				return { type: 'selection' as const, filePath: path, displayName: a.displayName ?? path, text: a.text, selection: a.selection };
-			}
-			return { type: a.type, path, displayName: a.displayName };
-		});
+		const sdkAttachments = attachments
+			?.map(a => convertToSdkAttachment(a))
+			.filter((a): a is NonNullable<typeof a> => a !== undefined);
 		if (sdkAttachments?.length) {
-			this._logService.trace(`[Copilot:${this.sessionId}] Attachments: ${JSON.stringify(sdkAttachments.map(a => ({ type: a.type, path: a.type === 'selection' ? a.filePath : a.path })))}`);
+			this._logService.trace(`[Copilot:${this.sessionId}] Attachments: ${JSON.stringify(sdkAttachments.map(a => ({ type: a.type, path: a.type === 'selection' ? a.filePath : a.displayName })))}`);
 		}
 
 		await this.applyMode(mode);

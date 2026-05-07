@@ -17,7 +17,7 @@ import { InMemoryFileSystemProvider } from '../../../files/common/inMemoryFilesy
 import { InstantiationService } from '../../../instantiation/common/instantiationService.js';
 import { ServiceCollection } from '../../../instantiation/common/serviceCollection.js';
 import { ILogService, NullLogService } from '../../../log/common/log.js';
-import { AgentAttachmentKind, AgentSession, IAgent } from '../../common/agentService.js';
+import { AgentSession, IAgent } from '../../common/agentService.js';
 import { ISessionDataService } from '../../common/sessionDataService.js';
 import type { RootConfigChangedAction } from '../../common/state/protocol/actions.js';
 import { CustomizationStatus } from '../../common/state/protocol/state.js';
@@ -145,7 +145,7 @@ suite('AgentSideEffects', () => {
 			assert.deepStrictEqual(agent.sendMessageCalls, [{
 				session: URI.parse(sessionUri.toString()),
 				prompt: 'hello world',
-				attachments: [{ type: AgentAttachmentKind.File, uri: URI.parse(fileUri.toString()), displayName: 'test.ts', text: undefined, selection: undefined }],
+				attachments: [{ type: MessageAttachmentKind.Resource, uri: fileUri.toString(), label: 'test.ts', displayKind: 'document' }],
 			}]);
 		});
 
@@ -529,7 +529,7 @@ suite('AgentSideEffects', () => {
 			assert.deepStrictEqual(agent.sendMessageCalls, [{
 				session: URI.parse(sessionUri.toString()),
 				prompt: 'queued message',
-				attachments: [{ type: AgentAttachmentKind.File, uri: URI.parse(fileUri.toString()), displayName: 'queued.ts', text: undefined, selection: undefined }],
+				attachments: [{ type: MessageAttachmentKind.Resource, uri: fileUri.toString(), label: 'queued.ts', displayKind: 'document' }],
 			}]);
 		});
 

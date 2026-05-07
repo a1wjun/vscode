@@ -12,13 +12,12 @@ import { URI } from '../../../base/common/uri.js';
 import { generateUuid } from '../../../base/common/uuid.js';
 import { ILogService } from '../../log/common/log.js';
 import { IInstantiationService } from '../../instantiation/common/instantiation.js';
-import { AgentAttachmentKind, AgentSignal, IAgent, IAgentAttachment, IAgentToolPendingConfirmationSignal } from '../common/agentService.js';
+import { AgentSignal, IAgent, IAgentToolPendingConfirmationSignal } from '../common/agentService.js';
 import { IDiffComputeService } from '../common/diffComputeService.js';
 import { ISessionDatabase, ISessionDataService } from '../common/sessionDataService.js';
 import type { AgentInfo } from '../common/state/protocol/state.js';
 import { ActionType, isSessionAction, StateAction, type SessionToolCallCompleteAction } from '../common/state/sessionActions.js';
 import {
-	MessageAttachmentKind,
 	PendingMessageKind,
 	ResponsePartKind,
 	SessionStatus,
@@ -26,7 +25,6 @@ import {
 	ToolResultContentType,
 	buildSubagentSessionUri,
 	getToolFileEdits,
-	type MessageAttachment,
 	type SessionState,
 	type ToolResultContent,
 	type ISessionFileDiff,
@@ -37,56 +35,6 @@ import { IAgentHostGitService, META_DIFF_BASE_BRANCH } from './agentHostGitServi
 import { NodeWorkerDiffComputeService } from './diffComputeService.js';
 import { computeSessionDiffs, type IIncrementalDiffOptions } from './sessionDiffAggregator.js';
 import { SessionPermissionManager } from './sessionPermissions.js';
-
-/**
- * Translate the protocol's {@link MessageAttachment} shape into the
- * agent-host-internal {@link IAgentAttachment} representation that
- * agent providers consume. Only resource attachments are forwarded —
- * embedded resources and simple attachments are ignored until agents
- * grow first-class support for them.
- */
-function wireAttachmentsToAgentAttachments(attachments: readonly MessageAttachment[] | undefined): IAgentAttachment[] | undefined {
-	if (!attachments?.length) {
-		return undefined;
-	}
-	const result: IAgentAttachment[] = [];
-	for (const attachment of attachments) {
-		if (attachment.type !== MessageAttachmentKind.Resource) {
-			continue;
-		}
-		const kind = displayKindToAgentAttachmentKind(attachment.displayKind);
-		if (!kind) {
-			continue;
-		}
-		const selection = attachment.selection;
-		result.push({
-			type: kind,
-			uri: URI.parse(attachment.uri),
-			displayName: attachment.label,
-			text: selection?.value,
-			selection: selection ? { start: selection.range.start, end: selection.range.end } : undefined,
-		});
-	}
-	return result.length > 0 ? result : undefined;
-}
-
-function displayKindToAgentAttachmentKind(displayKind: string | undefined): AgentAttachmentKind | undefined {
-	switch (displayKind) {
-		case 'directory':
-			return AgentAttachmentKind.Directory;
-		case 'selection':
-			return AgentAttachmentKind.Selection;
-		case undefined:
-		case 'document':
-		case 'image':
-		case 'symbol':
-			return AgentAttachmentKind.File;
-		default:
-			// Treat unknown display hints as plain file references rather
-			// than dropping the attachment outright.
-			return AgentAttachmentKind.File;
-	}
-}
 
 /**
  * Options for constructing an {@link AgentSideEffects} instance.
@@ -749,7 +697,7 @@ export class AgentSideEffects extends Disposable {
 					});
 					return;
 				}
-				const attachments = wireAttachmentsToAgentAttachments(action.userMessage.attachments);
+				const attachments = action.userMessage.attachments;
 				agent.sendMessage(URI.parse(action.session), action.userMessage.text, attachments, action.turnId).catch(err => {
 					const errCode = (err as { code?: number })?.code;
 					this._logService.error(`[AgentSideEffects] sendMessage failed for session=${action.session}: code=${errCode}, message=${err instanceof Error ? err.message : String(err)}, type=${err?.constructor?.name}`, err);
@@ -980,7 +928,7 @@ export class AgentSideEffects extends Disposable {
 			});
 			return;
 		}
-		const attachments = wireAttachmentsToAgentAttachments(msg.userMessage.attachments);
+		const attachments = msg.userMessage.attachments;
 		agent.sendMessage(URI.parse(session), msg.userMessage.text, attachments, turnId).catch(err => {
 			this._logService.error('[AgentSideEffects] sendMessage failed (queued)', err);
 			this._stateManager.dispatchServerAction({

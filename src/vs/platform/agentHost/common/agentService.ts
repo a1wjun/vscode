@@ -13,7 +13,7 @@ import { createDecorator } from '../../instantiation/common/instantiation.js';
 import type { ISyncedCustomization } from './agentPluginManager.js';
 import type { IAgentSubscription } from './state/agentSubscription.js';
 import type { CompletionsParams, CompletionsResult, CreateTerminalParams, ResolveSessionConfigResult, SessionConfigCompletionsResult } from './state/protocol/commands.js';
-import { ProtectedResourceMetadata, type ConfigSchema, type FileEdit, type ModelSelection, type SessionActiveClient, type ToolCallPendingConfirmationState, type ToolDefinition } from './state/protocol/state.js';
+import { ProtectedResourceMetadata, type ConfigSchema, type FileEdit, type MessageAttachment, type ModelSelection, type SessionActiveClient, type ToolCallPendingConfirmationState, type ToolDefinition } from './state/protocol/state.js';
 import type { ActionEnvelope, INotification, IRootConfigChangedAction, SessionAction, TerminalAction } from './state/sessionActions.js';
 import type { ResourceCopyParams, ResourceCopyResult, ResourceDeleteParams, ResourceDeleteResult, ResourceListResult, ResourceMoveParams, ResourceMoveResult, ResourceReadResult, ResourceWriteParams, ResourceWriteResult, IStateSnapshot } from './state/sessionProtocol.js';
 import { ComponentToState, SessionInputResponseKind, SessionStatus, StateComponents, type CustomizationRef, type PendingMessage, type RootState, type SessionCustomization, type SessionInputAnswer, type SessionMeta, type ToolCallResult, type Turn, type PolicyState } from './state/sessionState.js';
@@ -246,32 +246,6 @@ export interface IAgentSessionConfigCompletionsParams extends IAgentResolveSessi
 	readonly query?: string;
 }
 
-/**
- * Internal classification of an {@link IAgentAttachment} as understood by
- * agent providers in the agent host process. Mapped to/from the protocol's
- * richer {@link import('./state/protocol/state.js').MessageAttachment} shape
- * by {@link agentSideEffects} on the wire boundary.
- */
-export const enum AgentAttachmentKind {
-	File = 'file',
-	Directory = 'directory',
-	Selection = 'selection',
-}
-
-/** Serializable attachment passed alongside a message to the agent host. */
-export interface IAgentAttachment {
-	readonly type: AgentAttachmentKind;
-	readonly uri: URI;
-	readonly displayName?: string;
-	/** For selections: the selected text. */
-	readonly text?: string;
-	/** For selections: line/character range. */
-	readonly selection?: {
-		readonly start: { readonly line: number; readonly character: number };
-		readonly end: { readonly line: number; readonly character: number };
-	};
-}
-
 /** Serializable model information from the agent host. */
 export interface IAgentModelInfo {
 	readonly provider: AgentProvider;
@@ -441,7 +415,7 @@ export interface IAgent {
 	sessionConfigCompletions(params: IAgentSessionConfigCompletionsParams): Promise<SessionConfigCompletionsResult>;
 
 	/** Send a user message into an existing session. */
-	sendMessage(session: URI, prompt: string, attachments?: IAgentAttachment[], turnId?: string): Promise<void>;
+	sendMessage(session: URI, prompt: string, attachments?: readonly MessageAttachment[], turnId?: string): Promise<void>;
 
 	/**
 	 * Called when the session's pending (steering) message changes.
