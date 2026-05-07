@@ -591,8 +591,14 @@ export interface IAgentService {
 	 * inside a user message the user is composing). Delegates to a pluggable
 	 * set of {@link IAgentHostCompletionItemProvider}s registered with the
 	 * agent host.
+	 *
+	 * Note: this method does not accept a {@link CancellationToken} because
+	 * `CancellationToken`s do not round-trip through the IPC boundary today
+	 * (the deserialised value lacks the prototype methods used by
+	 * subscribers). Callers that need cancellation should race the returned
+	 * promise on their own side.
 	 */
-	completions(params: CompletionsParams, token?: CancellationToken): Promise<CompletionsResult>;
+	completions(params: CompletionsParams): Promise<CompletionsResult>;
 
 	/**
 	 * Returns the set of characters that, when typed in a {@link UserMessage}
@@ -724,7 +730,7 @@ export interface IAgentConnection {
 	createSession(config?: IAgentCreateSessionConfig): Promise<URI>;
 	resolveSessionConfig(params: IAgentResolveSessionConfigParams): Promise<ResolveSessionConfigResult>;
 	sessionConfigCompletions(params: IAgentSessionConfigCompletionsParams): Promise<SessionConfigCompletionsResult>;
-	completions(params: CompletionsParams, token?: CancellationToken): Promise<CompletionsResult>;
+	completions(params: CompletionsParams): Promise<CompletionsResult>;
 
 	/**
 	 * Trigger characters announced by the connected agent host that should

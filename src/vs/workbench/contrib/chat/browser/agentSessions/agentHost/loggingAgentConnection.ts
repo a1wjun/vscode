@@ -4,7 +4,6 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Emitter, Event } from '../../../../../../base/common/event.js';
-import type { CancellationToken } from '../../../../../../base/common/cancellation.js';
 import { Disposable, DisposableStore, IDisposable, IReference, toDisposable } from '../../../../../../base/common/lifecycle.js';
 import { URI, UriComponents } from '../../../../../../base/common/uri.js';
 import { Registry } from '../../../../../../platform/registry/common/platform.js';
@@ -193,8 +192,8 @@ export class LoggingAgentConnection extends Disposable implements IAgentConnecti
 		return this._logCall('sessionConfigCompletions', params, () => this._inner.sessionConfigCompletions(params));
 	}
 
-	async completions(params: CompletionsParams, token?: CancellationToken): Promise<CompletionsResult> {
-		return this._logCall('completions', params, () => this._inner.completions(params, token));
+	async completions(params: CompletionsParams): Promise<CompletionsResult> {
+		return this._logCall('completions', params, () => this._inner.completions(params));
 	}
 
 	async getCompletionTriggerCharacters(): Promise<readonly string[]> {

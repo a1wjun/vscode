@@ -9,7 +9,6 @@
 
 import { DeferredPromise } from '../../../base/common/async.js';
 import { CancellationError } from '../../../base/common/errors.js';
-import type { CancellationToken } from '../../../base/common/cancellation.js';
 import { Emitter } from '../../../base/common/event.js';
 import { Disposable, IReference } from '../../../base/common/lifecycle.js';
 import { Schemas } from '../../../base/common/network.js';
@@ -253,7 +252,7 @@ export class RemoteAgentHostProtocolClient extends Disposable implements IAgentC
 		});
 	}
 
-	async completions(params: CompletionsParams, _token?: CancellationToken): Promise<CompletionsResult> {
+	async completions(params: CompletionsParams): Promise<CompletionsResult> {
 		return this._sendRequest('completions', params);
 	}
 

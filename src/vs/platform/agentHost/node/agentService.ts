@@ -5,7 +5,6 @@
 
 import { decodeBase64, VSBuffer } from '../../../base/common/buffer.js';
 import { disposableTimeout } from '../../../base/common/async.js';
-import type { CancellationToken } from '../../../base/common/cancellation.js';
 import { toErrorMessage } from '../../../base/common/errorMessage.js';
 import { Emitter } from '../../../base/common/event.js';
 import { Disposable, DisposableResourceMap, DisposableStore, IDisposable } from '../../../base/common/lifecycle.js';
@@ -526,8 +525,8 @@ export class AgentService extends Disposable implements IAgentService {
 		return provider.sessionConfigCompletions(params);
 	}
 
-	async completions(params: CompletionsParams, token?: CancellationToken): Promise<CompletionsResult> {
-		return this._completions.completions(params, token);
+	async completions(params: CompletionsParams): Promise<CompletionsResult> {
+		return this._completions.completions(params);
 	}
 
 	async getCompletionTriggerCharacters(): Promise<readonly string[]> {

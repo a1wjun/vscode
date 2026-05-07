@@ -473,12 +473,16 @@ export class AgentHostSessionHandler extends Disposable implements IChatSessionC
 
 	async provideChatInputCompletions(sessionResource: URI, params: IChatInputCompletionsParams, token: CancellationToken): Promise<IChatInputCompletionsResult | undefined> {
 		const backendSession = this._resolveSessionUri(sessionResource);
+		// Note: we don't forward `token` across IPC \u2014 cancellation tokens
+		// don't round-trip through the proxy channel today. The post-await
+		// `isCancellationRequested` check below is enough to drop a stale
+		// result if the user kept typing while the request was in flight.
 		const result = await this._config.connection.completions({
 			kind: AhpCompletionItemKind.UserMessage,
 			session: backendSession.toString(),
 			text: params.text,
 			offset: params.offset,
-		}, token);
+		});
 		if (token.isCancellationRequested) {
 			return undefined;
 		}
