@@ -68,6 +68,19 @@ const ModelPickerSection = {
 	Other: 'other',
 } as const;
 
+/**
+ * Returns a human-readable display name for a model vendor.
+ * Looks up the registered provider descriptor's displayName first,
+ * then falls back to capitalizing the raw vendor id.
+ */
+function getVendorDisplayName(languageModelsService: ILanguageModelsService, vendor: string): string {
+	const descriptor = languageModelsService.getVendors().find(v => v.vendor === vendor);
+	if (descriptor?.displayName) {
+		return descriptor.displayName;
+	}
+	return vendor.charAt(0).toUpperCase() + vendor.slice(1);
+}
+
 type ChatModelChangeClassification = {
 	owner: 'lramos15';
 	comment: 'Reporting when the model picker is switched';
@@ -105,6 +118,7 @@ function createModelItem(
 	model?: ILanguageModelChatMetadataAndIdentifier,
 	descriptionOverride?: string | MarkdownString,
 	openerService?: IOpenerService,
+	vendorLabel?: string,
 ): IActionListItem<IActionWidgetDropdownAction> {
 	const hover = model && openerService ? getModelHoverContent(model, openerService) : undefined;
 	return {
@@ -115,6 +129,8 @@ function createModelItem(
 		group: { title: '', icon: action.icon ?? ThemeIcon.fromId(action.checked ? Codicon.check.id : Codicon.blank.id) },
 		hideIcon: false,
 		section: action.section,
+		className: vendorLabel ? 'chat-model-picker-inline-source' : undefined,
+		badge: vendorLabel,
 		hover: hover ? { content: hover.element, disposable: hover.disposable } : undefined,
 		tooltip: action.tooltip,
 		submenuActions: action.toolbarActions?.length ? action.toolbarActions : undefined,
@@ -172,12 +188,16 @@ function createModelAction(
 	onSelect: (model: ILanguageModelChatMetadataAndIdentifier) => void,
 	languageModelsService: ILanguageModelsService,
 	section?: string,
+	suppressVendorInDetail?: boolean,
 ): { action: IActionWidgetDropdownAction & { section?: string }; descriptionOverride?: MarkdownString } {
 	// Only show pricing in the description line if it's a multiplier (e.g. "2x").
 	// Detailed AIC/token pricing is shown in the hover instead.
 	const pricingForDescription = isMultiplierPricing(model) ? model.metadata.pricing : undefined;
 	const priceCategoryIndicator = getPriceCategoryIndicator(model.metadata.priceCategory);
-	const textParts = [model.metadata.detail, pricingForDescription].filter(Boolean);
+	// Strip the detail when suppressVendorInDetail is set — the vendor is
+	// shown either inline (promoted) or in a section header (Other Models).
+	const detail = suppressVendorInDetail ? undefined : model.metadata.detail;
+	const textParts = [detail, pricingForDescription].filter(Boolean);
 	const textDescription = textParts.length > 0 ? textParts.join(' · ') : undefined;
 
 	let descriptionOverride: MarkdownString | undefined;
@@ -236,7 +256,9 @@ function createManageModelsAction(commandService: ICommandService): IActionWidge
  * 2. Promoted section (selected + recently used + featured models from control manifest)
  *    - Available models sorted alphabetically, followed by unavailable models
  *    - Unavailable models show upgrade/update/admin status
- * 3. Other Models (collapsible toggle, available first, then sorted by vendor then name)
+ *    - Promoted models show an inline source label next to the model name
+ * 3. Other Models (collapsible toggle) - models grouped by vendor with separator headers
+ *    - Each vendor group has a titled separator header
  * 4. Optional "Manage Models..." action shown in Other Models after a separator
  */
 export function buildModelPickerItems(
@@ -380,7 +402,8 @@ export function buildModelPickerItems(
 				}
 			}
 
-			// Render promoted section: available first, then sorted alphabetically by name
+			// Render promoted section: available first, then sorted alphabetically by name.
+			// Promoted models show their vendor name inline only when multiple vendors are present.
 			if (promotedItems.length > 0) {
 				promotedItems.sort((a, b) => {
 					const aAvail = a.kind === 'available' ? 0 : 1;
@@ -393,35 +416,22 @@ export function buildModelPickerItems(
 					return aName.localeCompare(bName);
 				});
 
+				const allVendors = new Set(models.map(m => m.metadata.vendor));
+				const showPromotedVendorLabel = allVendors.size > 1;
+
 				for (const item of promotedItems) {
 					if (item.kind === 'available') {
-						const { action: promotedAction, descriptionOverride: promotedDesc } = createModelAction(item.model, selectedModelId, onSelect, languageModelsService!);
-						items.push(createModelItem(promotedAction, item.model, promotedDesc, openerService));
+						const vendorLabel = showPromotedVendorLabel ? getVendorDisplayName(languageModelsService!, item.model.metadata.vendor) : undefined;
+						const { action: promotedAction, descriptionOverride: promotedDesc } = createModelAction(item.model, selectedModelId, onSelect, languageModelsService!, undefined, showPromotedVendorLabel);
+						items.push(createModelItem(promotedAction, item.model, promotedDesc, openerService, vendorLabel));
 					} else {
 						items.push(createUnavailableModelItem(item.id, item.entry, item.reason, manageSettingsUrl, updateStateType, chatEntitlementService));
 					}
 				}
 			}
 
-			// --- 3. Other Models (collapsible) ---
-			otherModels = models
-				.filter(m => !placed.has(m.identifier) && !placed.has(m.metadata.id))
-				.sort((a, b) => {
-					const aEntry = controlModels[a.metadata.id] ?? controlModels[a.identifier];
-					const bEntry = controlModels[b.metadata.id] ?? controlModels[b.identifier];
-					const aAvail = aEntry?.minVSCodeVersion && !isVersionAtLeast(currentVSCodeVersion, aEntry.minVSCodeVersion) ? 1 : 0;
-					const bAvail = bEntry?.minVSCodeVersion && !isVersionAtLeast(currentVSCodeVersion, bEntry.minVSCodeVersion) ? 1 : 0;
-					if (aAvail !== bAvail) {
-						return aAvail - bAvail;
-					}
-					const aCopilot = a.metadata.vendor === 'copilot' ? 0 : 1;
-					const bCopilot = b.metadata.vendor === 'copilot' ? 0 : 1;
-					if (aCopilot !== bCopilot) {
-						return aCopilot - bCopilot;
-					}
-					const vendorCmp = a.metadata.vendor.localeCompare(b.metadata.vendor);
-					return vendorCmp !== 0 ? vendorCmp : a.metadata.name.localeCompare(b.metadata.name);
-				});
+			// --- 3. Other Models (collapsible, grouped by vendor) ---
+			otherModels = models.filter(m => !placed.has(m.identifier) && !placed.has(m.metadata.id));
 
 			if (otherModels.length > 0) {
 				if (items.length > 0) {
@@ -449,13 +459,59 @@ export function buildModelPickerItems(
 					toolbarActions: otherModelsToolbar,
 					className: 'chat-model-picker-section-toggle',
 				});
+
+				// Group remaining models by vendor and create collapsible vendor sub-sections
+				const vendorGroups = new Map<string, ILanguageModelChatMetadataAndIdentifier[]>();
 				for (const model of otherModels) {
-					const entry = controlModels[model.metadata.id] ?? controlModels[model.identifier];
-					if (entry?.minVSCodeVersion && !isVersionAtLeast(currentVSCodeVersion, entry.minVSCodeVersion)) {
-						items.push(createUnavailableModelItem(model.metadata.id, entry, 'update', manageSettingsUrl, updateStateType, chatEntitlementService, ModelPickerSection.Other));
-					} else {
-						const { action: otherAction, descriptionOverride: otherDesc } = createModelAction(model, selectedModelId, onSelect, languageModelsService!, ModelPickerSection.Other);
-						items.push(createModelItem(otherAction, model, otherDesc, openerService));
+					const vendor = model.metadata.vendor;
+					let group = vendorGroups.get(vendor);
+					if (!group) {
+						group = [];
+						vendorGroups.set(vendor, group);
+					}
+					group.push(model);
+				}
+
+				// Sort vendors: copilot first, then alphabetically by display name
+				const sortedVendors = [...vendorGroups.keys()].sort((a, b) => {
+					if (a === 'copilot') { return -1; }
+					if (b === 'copilot') { return 1; }
+					return getVendorDisplayName(languageModelsService!, a).localeCompare(getVendorDisplayName(languageModelsService!, b));
+				});
+
+				const showVendorHeaders = sortedVendors.length > 1;
+
+				for (const vendor of sortedVendors) {
+					const vendorModels = vendorGroups.get(vendor)!;
+
+					if (showVendorHeaders) {
+						const vendorDisplayName = getVendorDisplayName(languageModelsService!, vendor);
+						// Vendor separator header
+						items.push({
+							kind: ActionListItemKind.Separator,
+							label: vendorDisplayName,
+							section: ModelPickerSection.Other,
+						});
+					}
+
+					// Vendor models sorted: available first, then alphabetically by name
+					const sortedVendorModels = [...vendorModels].sort((a, b) => {
+						const aEntry = controlModels[a.metadata.id] ?? controlModels[a.identifier];
+						const bEntry = controlModels[b.metadata.id] ?? controlModels[b.identifier];
+						const aAvail = aEntry?.minVSCodeVersion && !isVersionAtLeast(currentVSCodeVersion, aEntry.minVSCodeVersion) ? 1 : 0;
+						const bAvail = bEntry?.minVSCodeVersion && !isVersionAtLeast(currentVSCodeVersion, bEntry.minVSCodeVersion) ? 1 : 0;
+						if (aAvail !== bAvail) { return aAvail - bAvail; }
+						return a.metadata.name.localeCompare(b.metadata.name);
+					});
+
+					for (const model of sortedVendorModels) {
+						const entry = controlModels[model.metadata.id] ?? controlModels[model.identifier];
+						if (entry?.minVSCodeVersion && !isVersionAtLeast(currentVSCodeVersion, entry.minVSCodeVersion)) {
+							items.push(createUnavailableModelItem(model.metadata.id, entry, 'update', manageSettingsUrl, updateStateType, chatEntitlementService, ModelPickerSection.Other));
+						} else {
+							const { action: vendorAction, descriptionOverride: vendorDesc } = createModelAction(model, selectedModelId, onSelect, languageModelsService!, ModelPickerSection.Other, showVendorHeaders);
+							items.push(createModelItem(vendorAction, model, vendorDesc, openerService));
+						}
 					}
 				}
 			}
@@ -497,6 +553,13 @@ export function buildModelPickerItems(
 
 export function getModelPickerAccessibilityProvider() {
 	return {
+		getAriaLabel(element: IActionListItem<IActionWidgetDropdownAction>) {
+			if (element.kind !== ActionListItemKind.Action) {
+				return null;
+			}
+			const description = typeof element.description === 'string' ? element.description : element.description?.value;
+			return [element.label, element.badge, description].filter((part): part is string => !!part).join(', ');
+		},
 		isChecked(element: IActionListItem<IActionWidgetDropdownAction>) {
 			if (element.isSectionToggle) {
 				return undefined;

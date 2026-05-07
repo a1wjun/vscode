@@ -801,46 +801,69 @@ export class ActionListWidget<T> extends Disposable {
 			focusedItem = this._list.element(focusedIndexes[0]);
 		}
 
-		for (const item of this._allMenuItems) {
-			if (item.kind === ActionListItemKind.Header) {
-				if (isFiltering) {
-					// When filtering, skip all headers
-					continue;
-				}
-				visible.push(item);
-				continue;
-			}
+		if (isFiltering) {
+			let pendingSeparator: IActionListItem<T> | undefined;
+			let filteredSectionItems: IActionListItem<T>[] = [];
+			let hasMatchingActionInSection = false;
 
-			if (item.kind === ActionListItemKind.Separator) {
-				if (isFiltering) {
-					continue;
+			const flushFilteredSection = () => {
+				if (pendingSeparator && hasMatchingActionInSection) {
+					visible.push(pendingSeparator);
 				}
-				if (item.section && this._collapsedSections.has(item.section)) {
-					continue;
-				}
-				visible.push(item);
-				continue;
-			}
+				visible.push(...filteredSectionItems);
+				pendingSeparator = undefined;
+				filteredSectionItems = [];
+				hasMatchingActionInSection = false;
+			};
 
-			// Action item
-			if (isFiltering) {
-				// Always show items tagged with showAlways
+			const matchesFilter = (item: IActionListItem<T>) => {
+				const label = (item.label ?? '').toLowerCase();
+				const descValue = typeof item.description === 'string' ? item.description : (item.description?.value ?? '');
+				return label.includes(filterLower) || descValue.toLowerCase().includes(filterLower);
+			};
+
+			for (const item of this._allMenuItems) {
+				if (item.kind === ActionListItemKind.Header) {
+					continue;
+				}
+
+				if (item.kind === ActionListItemKind.Separator) {
+					flushFilteredSection();
+					pendingSeparator = item.label ? item : undefined;
+					continue;
+				}
+
 				if (item.showAlways) {
-					visible.push(item);
+					filteredSectionItems.push(item);
 					continue;
 				}
-				// When filtering, skip section toggle items and only match content
+
 				if (item.isSectionToggle) {
 					continue;
 				}
-				// Match against label and description
-				const label = (item.label ?? '').toLowerCase();
-				const descValue = typeof item.description === 'string' ? item.description : item.description?.value ?? '';
-				const desc = descValue.toLowerCase();
-				if (label.includes(filterLower) || desc.includes(filterLower)) {
-					visible.push(item);
+
+				if (matchesFilter(item)) {
+					hasMatchingActionInSection = true;
+					filteredSectionItems.push(item);
 				}
-			} else {
+			}
+
+			flushFilteredSection();
+		} else {
+			for (const item of this._allMenuItems) {
+				if (item.kind === ActionListItemKind.Header) {
+					visible.push(item);
+					continue;
+				}
+
+				if (item.kind === ActionListItemKind.Separator) {
+					if (item.section && this._collapsedSections.has(item.section)) {
+						continue;
+					}
+					visible.push(item);
+					continue;
+				}
+
 				// Update icon for section toggle items based on collapsed state
 				if (item.isSectionToggle && item.section) {
 					const collapsed = this._collapsedSections.has(item.section);
@@ -858,15 +881,39 @@ export class ActionListWidget<T> extends Disposable {
 			}
 		}
 
-		// Remove orphaned separators (leading, trailing, or consecutive)
+		// Remove orphaned separators while keeping labeled separators that act as
+		// section headers above their following action items.
+		const hasActionBefore: boolean[] = [];
+		let seenAction = false;
+		for (let i = 0; i < visible.length; i++) {
+			hasActionBefore[i] = seenAction;
+			if (visible[i].kind === ActionListItemKind.Action) {
+				seenAction = true;
+			}
+		}
+
+		const hasActionBeforeNextSeparator: boolean[] = [];
+		let seenActionInSection = false;
 		for (let i = visible.length - 1; i >= 0; i--) {
+			if (visible[i].kind === ActionListItemKind.Action) {
+				seenActionInSection = true;
+				continue;
+			}
 			if (visible[i].kind !== ActionListItemKind.Separator) {
 				continue;
 			}
-			const isLeading = !visible.slice(0, i).some(v => v.kind === ActionListItemKind.Action);
-			const isTrailing = i === visible.length - 1;
-			const isConsecutive = i < visible.length - 1 && visible[i + 1].kind === ActionListItemKind.Separator;
-			if (isLeading || isTrailing || isConsecutive) {
+			hasActionBeforeNextSeparator[i] = seenActionInSection;
+			seenActionInSection = false;
+		}
+
+		for (let i = visible.length - 1; i >= 0; i--) {
+			const item = visible[i];
+			if (item.kind !== ActionListItemKind.Separator) {
+				continue;
+			}
+			const hasFollowingActionInSection = hasActionBeforeNextSeparator[i];
+			const isLeadingUnlabeledDivider = !item.label && !hasActionBefore[i];
+			if (!hasFollowingActionInSection || isLeadingUnlabeledDivider) {
 				visible.splice(i, 1);
 			}
 		}
@@ -1020,7 +1067,7 @@ export class ActionListWidget<T> extends Disposable {
 			case ActionListItemKind.Header:
 				return this._headerLineHeight;
 			case ActionListItemKind.Separator:
-				return this._separatorLineHeight;
+				return item.label ? this._actionLineHeight : this._separatorLineHeight;
 			default:
 				return item.detail ? (this._options?.detailItemHeight ?? 48) : this._actionLineHeight;
 		}
