@@ -138,23 +138,23 @@ export interface IChatSessionItem {
 
 export interface IChatSessionItemMetadata {
 	//#region Changes metadata (for sessions window)
-	repositoryPath?: string;
-	workingDirectoryPath?: string;
-	firstCheckpointRef?: string;
-	lastCheckpointRef?: string;
-	worktreePath?: string;
-	uncommittedChanges?: number;
-	baseRefOid?: string;
-	headRefOid?: string;
-	branchName?: string;
-	branch?: string;
-	baseBranchName?: string;
-	baseBranch?: string;
-	baseBranchProtected?: boolean;
-	hasGitHubRemote?: boolean;
-	upstreamBranchName?: string;
-	incomingChanges?: number;
-	outgoingChanges?: number;
+	readonly repositoryPath?: string;
+	readonly workingDirectoryPath?: string;
+	readonly firstCheckpointRef?: string;
+	readonly lastCheckpointRef?: string;
+	readonly worktreePath?: string;
+	readonly uncommittedChanges?: number;
+	readonly baseRefOid?: string;
+	readonly headRefOid?: string;
+	readonly branchName?: string;
+	readonly branch?: string;
+	readonly baseBranchName?: string;
+	readonly baseBranch?: string;
+	readonly baseBranchProtected?: boolean;
+	readonly hasGitHubRemote?: boolean;
+	readonly upstreamBranchName?: string;
+	readonly incomingChanges?: number;
+	readonly outgoingChanges?: number;
 	//#endregion
 
 	readonly [key: string]: unknown;
