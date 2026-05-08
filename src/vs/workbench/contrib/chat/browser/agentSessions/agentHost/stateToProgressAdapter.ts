@@ -130,8 +130,12 @@ export function turnsToHistory(backendSession: URI, turns: readonly Turn[], part
 		const modelName = lookup?.toModelDisplayName(rawModelId);
 
 		// Request
+		const requestItem: IChatSessionHistoryItem & { type: 'request' } = { id: turn.id, type: 'request', prompt: turn.userMessage.text, participant: participantId, modelId };
 		const variableData = userMessageToVariableData(turn.userMessage, connectionAuthority);
-		history.push({ id: turn.id, type: 'request', prompt: turn.userMessage.text, participant: participantId, modelId, variableData });
+		if (variableData) {
+			requestItem.variableData = variableData;
+		}
+		history.push(requestItem);
 
 		// Response parts — iterate the unified responseParts array
 		const parts: IChatProgress[] = [];

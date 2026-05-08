@@ -606,13 +606,17 @@ export class AgentHostSessionHandler extends Disposable implements IChatSessionC
 					if (sessionState.activeTurn) {
 						activeTurnId = sessionState.activeTurn.id;
 						const activeRawModelId = sessionState.activeTurn.usage?.model ?? fallbackRawModelId;
-						history.push({
+						const requestItem: IChatSessionHistoryItem & { type: 'request' } = {
 							type: 'request',
 							prompt: sessionState.activeTurn.userMessage.text,
 							participant: this._config.agentId,
 							modelId: lookup.toLanguageModelId(activeRawModelId),
-							variableData: userMessageToVariableData(sessionState.activeTurn.userMessage, this._config.connectionAuthority),
-						});
+						};
+						const variableData = userMessageToVariableData(sessionState.activeTurn.userMessage, this._config.connectionAuthority);
+						if (variableData) {
+							requestItem.variableData = variableData;
+						}
+						history.push(requestItem);
 						history.push({
 							type: 'response',
 							parts: [],
@@ -838,12 +842,16 @@ export class AgentHostSessionHandler extends Disposable implements IChatSessionC
 		// --- Steering ---
 		if (currentSteering) {
 			if (currentSteering.id !== prevSteering?.id) {
+				const userMessage: { text: string; attachments?: MessageAttachment[] } = { text: currentSteering.text };
+				if (currentSteering.attachments) {
+					userMessage.attachments = currentSteering.attachments;
+				}
 				this._dispatchAction({
 					type: ActionType.SessionPendingMessageSet,
 					session,
 					kind: PendingMessageKind.Steering,
 					id: currentSteering.id,
-					userMessage: { text: currentSteering.text, attachments: currentSteering.attachments },
+					userMessage,
 				});
 			}
 		} else if (prevSteering) {
@@ -872,12 +880,16 @@ export class AgentHostSessionHandler extends Disposable implements IChatSessionC
 		const prevQueuedIds = new Set(prevQueued.map(q => q.id));
 		for (const q of currentQueued) {
 			if (!prevQueuedIds.has(q.id)) {
+				const userMessage: { text: string; attachments?: MessageAttachment[] } = { text: q.text };
+				if (q.attachments) {
+					userMessage.attachments = q.attachments;
+				}
 				this._dispatchAction({
 					type: ActionType.SessionPendingMessageSet,
 					session,
 					kind: PendingMessageKind.Queued,
 					id: q.id,
-					userMessage: { text: q.text, attachments: q.attachments },
+					userMessage,
 				});
 			}
 		}
@@ -2512,7 +2524,10 @@ export class AgentHostSessionHandler extends Disposable implements IChatSessionC
 
 	private _convertVariableToAttachment(v: IChatRequestVariableEntry, sessionResource: URI): MessageAttachment | undefined {
 		// File / implicit attachments: a Location → selection, a URI → resource.
-		if ((v.kind === 'file' || v.kind === 'implicit') && isLocation(v.value)) {
+		// Only the selection variant of an implicit attachment becomes a
+		// `selection`; the bare visible-document case stays a plain file
+		// reference (or, when there's no value at all, gets dropped).
+		if ((v.kind === 'file' || (v.kind === 'implicit' && v.isSelection)) && isLocation(v.value)) {
 			return this._toSelectionAttachment(v.value, v.name, 'selection', sessionResource, v._meta);
 		}
 		if ((v.kind === 'file' || v.kind === 'implicit') && v.value instanceof URI) {

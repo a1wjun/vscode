@@ -822,7 +822,17 @@ export class AgentService extends Disposable implements IAgentService {
 		if (attachment.type === MessageAttachmentKind.EmbeddedResource) {
 			return true;
 		}
-
+		if (attachment.type === MessageAttachmentKind.Resource) {
+			// Don't try to fetch directories or already-rewritten attachments
+			// (whose URIs already point under our session attachments folder).
+			if (attachment.displayKind === 'directory') {
+				return false;
+			}
+			if (attachment.uri.startsWith(attachmentsRootStr)) {
+				return false;
+			}
+			return true;
+		}
 		return false;
 	}
 
