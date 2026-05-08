@@ -1987,8 +1987,21 @@ export class CopilotChatSessionsProvider extends Disposable implements ISessions
 			throw new Error('[CopilotChatSessionsProvider] Failed to open chat widget for local session');
 		}
 
+		// Obtain user-selected tools from the chat widget so the copilot
+		// extension sees the full tool set. Without this, the direct
+		// chatService.sendRequest bypasses chatWidget.acceptInput() which
+		// normally provides these.
+		const { userSelectedTools } = chatWidget.getModeRequestOptions();
+
 		this.logService.debug(`[CopilotChatSessionsProvider] Sending first chat for local session ${session.id}`);
-		const result = await this.chatService.sendRequest(session.resource, query, sendOptions);
+		const result = await this.chatService.sendRequest(session.resource, query, {
+			...sendOptions,
+			userSelectedTools,
+			instructionContext: {
+				modeKind: sendOptions.modeInfo?.kind ?? ChatModeKind.Agent,
+				enabledTools: userSelectedTools?.get(),
+			},
+		});
 		if (result.kind === 'rejected') {
 			throw new Error(`[CopilotChatSessionsProvider] Local sendRequest rejected: ${result.reason}`);
 		}
