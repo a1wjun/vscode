@@ -244,7 +244,8 @@ export class AgentPrompt extends PromptElement<AgentPromptProps> {
 		const isNewChat = this.props.promptContext.history?.length === 0;
 		// TODO:@bhavyau find a better way to extract session resource
 		const sessionResource = (this.props.promptContext.tools?.toolInvocationToken as any)?.sessionResource as string | undefined;
-		const rendered = await renderPromptElement(this.instantiationService, endpoint, GlobalAgentContext, { enableCacheBreakpoints: this.props.enableCacheBreakpoints, availableTools: this.props.promptContext.tools?.availableTools, isNewChat, sessionResource }, undefined, undefined);
+		const workingDirectory = (this.props.promptContext.tools?.toolInvocationToken as any)?.workingDirectory as URI | undefined;
+		const rendered = await renderPromptElement(this.instantiationService, endpoint, GlobalAgentContext, { enableCacheBreakpoints: this.props.enableCacheBreakpoints, availableTools: this.props.promptContext.tools?.availableTools, isNewChat, sessionResource, workingDirectory }, undefined, undefined);
 		const msg = rendered.messages.at(0)?.content;
 		if (msg) {
 			firstTurn?.setMetadata(new GlobalContextMessageMetadata(msg, this.instantiationService.invokeFunction(getGlobalContextCacheKey)));
@@ -258,6 +259,7 @@ interface GlobalAgentContextProps extends BasePromptElementProps {
 	readonly availableTools?: readonly LanguageModelToolInformation[];
 	readonly isNewChat?: boolean;
 	readonly sessionResource?: string;
+	readonly workingDirectory?: URI;
 }
 
 /**
@@ -274,8 +276,8 @@ class GlobalAgentContext extends PromptElement<GlobalAgentContextProps> {
 				<TokenLimit max={2000}>
 					<AgentTasksInstructions availableTools={this.props.availableTools} />
 				</TokenLimit>
-				<WorkspaceFoldersHint />
-				<AgentMultirootWorkspaceStructure maxSize={2000} excludeDotFiles={true} availableTools={this.props.availableTools} />
+				<WorkspaceFoldersHint workingDirectory={this.props.workingDirectory} />
+				<AgentMultirootWorkspaceStructure maxSize={2000} excludeDotFiles={true} availableTools={this.props.availableTools} workingDirectory={this.props.workingDirectory} />
 			</Tag>
 			<UserPreferences flexGrow={7} priority={800} />
 			{this.props.isNewChat && <MemoryContextPrompt sessionResource={this.props.sessionResource} />}
@@ -646,9 +648,13 @@ class CurrentEditorContext extends PromptElement<CurrentEditorContextProps> {
 	}
 }
 
-class WorkspaceFoldersHint extends PromptElement<BasePromptElementProps> {
+interface WorkspaceFoldersHintProps extends BasePromptElementProps {
+	readonly workingDirectory?: URI;
+}
+
+class WorkspaceFoldersHint extends PromptElement<WorkspaceFoldersHintProps> {
 	constructor(
-		props: BasePromptElementProps,
+		props: WorkspaceFoldersHintProps,
 		@IWorkspaceService private readonly workspaceService: IWorkspaceService,
 		@IPromptPathRepresentationService private readonly promptPathRepresentationService: IPromptPathRepresentationService,
 	) {
@@ -656,7 +662,11 @@ class WorkspaceFoldersHint extends PromptElement<BasePromptElementProps> {
 	}
 
 	async render(state: void, sizing: PromptSizing) {
-		const folders = this.workspaceService.getWorkspaceFolders();
+		// When workingDirectory is set (agents window), use it exclusively.
+		// Only fall back to workspace folders when no workingDirectory is specified.
+		const folders = this.props.workingDirectory
+			? [this.props.workingDirectory]
+			: this.workspaceService.getWorkspaceFolders();
 		if (folders.length > 0) {
 			return (
 				<>

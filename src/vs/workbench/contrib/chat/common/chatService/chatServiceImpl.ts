@@ -1292,6 +1292,7 @@ export class ChatService extends Disposable implements IChatService {
 							hooks: collectedHooks,
 							hasHooksEnabled: !!collectedHooks && Object.values(collectedHooks).some(arr => arr.length > 0),
 							isSystemInitiated: options?.isSystemInitiated,
+							workingDirectory: model.workingDirectory,
 						};
 
 						let isInitialTools = true;
