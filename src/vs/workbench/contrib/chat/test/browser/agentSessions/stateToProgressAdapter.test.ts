@@ -60,7 +60,7 @@ function finalizeToolInvocation(invocation: Parameters<typeof rawFinalizeToolInv
 }
 
 function turnsToHistory(backendSession: Parameters<typeof rawTurnsToHistory>[0], turns: Parameters<typeof rawTurnsToHistory>[1], participantId: Parameters<typeof rawTurnsToHistory>[2], lookup?: Parameters<typeof rawTurnsToHistory>[4]) {
-	return rawTurnsToHistory(backendSession, turns, participantId, undefined, lookup);
+	return rawTurnsToHistory(backendSession, turns, participantId, 'local', lookup);
 }
 
 /**
