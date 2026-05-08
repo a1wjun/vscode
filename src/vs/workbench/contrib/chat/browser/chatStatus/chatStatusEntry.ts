@@ -34,6 +34,8 @@ export class ChatStatusBarEntry extends Disposable implements IWorkbenchContribu
 
 	static readonly ID = 'workbench.contrib.chatStatusBarEntry';
 
+	private static readonly TITLE_BAR_CONTEXT_KEYS = new Set(['updateTitleBar', InEditorZenModeContext.key]);
+
 	private entry: IStatusbarEntryAccessor | undefined = undefined;
 
 	private readonly activeCodeEditorListener = this._register(new MutableDisposable());
@@ -107,7 +109,7 @@ export class ChatStatusBarEntry extends Disposable implements IWorkbenchContribu
 		this._register(this.chatEntitlementService.onDidChangeSentiment(() => this.update()));
 		this._register(this.chatEntitlementService.onDidChangeEntitlement(() => this.update()));
 		this._register(this.contextKeyService.onDidChangeContext(e => {
-			if (e.affectsSome(new Set(['updateTitleBar', InEditorZenModeContext.key]))) {
+			if (e.affectsSome(ChatStatusBarEntry.TITLE_BAR_CONTEXT_KEYS)) {
 				this.update();
 			}
 		}));
@@ -262,6 +264,11 @@ export class ChatStatusBarEntry extends Disposable implements IWorkbenchContribu
 
 	private isSignInTitleBarAffordanceVisible(): boolean {
 		if (isWeb) {
+			return false;
+		}
+
+		// Title bar sign-in button only shows when user is signed out
+		if (this.chatEntitlementService.entitlement !== ChatEntitlement.Unknown) {
 			return false;
 		}
 
