@@ -1066,14 +1066,16 @@ export function renderBackgroundTodoRound(round: IBackgroundTodoHistoryRound): s
 
 /**
  * Compute a prompt-tsx priority for a previous-context round so newer
- * rounds survive budget pressure ahead of older history. Values sit
- * below the system message (1000), user request (950), current todos
- * (900), and the new-activity block (880). New-activity rounds are
- * rendered without pruning so they don't need a priority helper.
+ * rounds survive budget pressure ahead of older history. Values are
+ * clamped to the [700, 879] range so they stay below the system
+ * message (1000), user request (950), current todos (900), and the
+ * new-activity block (880). New-activity rounds are rendered without
+ * pruning so they don't need a priority helper.
  */
 export function computeRoundPriority(round: IBackgroundTodoHistoryRound, totalPreviousRounds: number): number {
-	// 700 base + monotonic index boost so newer context survives longer.
-	return 700 + Math.min(round.index, totalPreviousRounds);
+	// 700 base + monotonic index boost so newer context survives longer,
+	// capped strictly below the new-activity priority.
+	return Math.min(879, 700 + Math.min(round.index, totalPreviousRounds));
 }
 
 /**
