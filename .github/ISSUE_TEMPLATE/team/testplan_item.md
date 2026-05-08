@@ -1,5 +1,5 @@
 ---
-name: Test Plan
+name: Test Plan Item
 about: Create test plan item for endgame
 title: ""
 labels: testplan-item
