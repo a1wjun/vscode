@@ -13,7 +13,7 @@ import { isEqual } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IAgentSessionsService } from '../../../../workbench/contrib/chat/browser/agentSessions/agentSessionsService.js';
-import { IChatSessionFileChange2 } from '../../../../workbench/contrib/chat/common/chatSessionsService.js';
+import { IChatSessionFileChange2, IChatSessionItemMetadata } from '../../../../workbench/contrib/chat/common/chatSessionsService.js';
 import { GitDiffChange, IGitService } from '../../../../workbench/contrib/git/common/gitService.js';
 import { COPILOT_CLOUD_SESSION_TYPE, ISessionFileChange } from '../../../services/sessions/common/session.js';
 import { ISessionsManagementService } from '../../../services/sessions/common/sessionsManagement.js';
@@ -88,7 +88,7 @@ export class ChangesViewModel extends Disposable {
 	readonly activeSessionStateObs: IObservable<ActiveSessionState | undefined>;
 	readonly activeSessionIsLoadingObs: IObservable<boolean>;
 
-	private _activeSessionMetadataObs!: IObservable<{ readonly [key: string]: unknown } | undefined>;
+	private _activeSessionMetadataObs!: IObservable<IChatSessionItemMetadata | undefined>;
 	private _activeSessionAllChangesPromiseObs!: IObservableWithChange<IObservable<IChatSessionFileChange2[] | undefined>>;
 	private _activeSessionLastTurnChangesPromiseObs!: IObservableWithChange<IObservable<IChatSessionFileChange2[] | undefined>>;
 	private _activeSessionUncommittedChangesPromiseObs!: IObservableWithChange<IObservable<IChatSessionFileChange2[] | undefined>>;
@@ -230,11 +230,11 @@ export class ChangesViewModel extends Disposable {
 		this.viewModeObs = observableValue<ChangesViewMode>(this, initialMode);
 	}
 
-	private _getActiveSessionMetadata(): IObservable<{ readonly [key: string]: unknown } | undefined> {
+	private _getActiveSessionMetadata(): IObservable<IChatSessionItemMetadata | undefined> {
 		const sessionsChangedSignal = observableSignalFromEvent(this,
 			this.sessionManagementService.onDidChangeSessions);
 
-		const sessionMetadata = derivedObservableWithCache<{ readonly [key: string]: unknown } | undefined>(this, (reader, lastValue) => {
+		const sessionMetadata = derivedObservableWithCache<IChatSessionItemMetadata | undefined>(this, (reader, lastValue) => {
 			const sessionResource = this.activeSessionResourceObs.read(reader);
 			if (!sessionResource) {
 				return undefined;
@@ -252,7 +252,7 @@ export class ChangesViewModel extends Disposable {
 			return model.metadata;
 		});
 
-		return derivedOpts<{ readonly [key: string]: unknown } | undefined>({ equalsFn: structuralEquals }, reader => {
+		return derivedOpts<IChatSessionItemMetadata | undefined>({ equalsFn: structuralEquals }, reader => {
 			return sessionMetadata.read(reader);
 		});
 	}

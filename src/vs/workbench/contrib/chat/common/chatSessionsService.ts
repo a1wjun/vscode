@@ -132,7 +132,31 @@ export interface IChatSessionItem {
 		readonly deletions: number;
 	} | readonly IChatSessionFileChange[] | readonly IChatSessionFileChange2[];
 	readonly archived?: boolean;
-	readonly metadata?: { readonly [key: string]: unknown };
+	readonly metadata?: IChatSessionItemMetadata;
+}
+
+export interface IChatSessionItemMetadata {
+	//#region Changes metadata (for sessions window)
+	repositoryPath?: string;
+	workingDirectoryPath?: string;
+	firstCheckpointRef?: string;
+	lastCheckpointRef?: string;
+	worktreePath?: string;
+	uncommittedChanges?: number;
+	baseRefOid?: string;
+	headRefOid?: string;
+	branchName?: string;
+	branch?: string;
+	baseBranchName?: string;
+	baseBranch?: string;
+	baseBranchProtected?: boolean;
+	hasGitHubRemote?: boolean;
+	upstreamBranchName?: string;
+	incomingChanges?: number;
+	outgoingChanges?: number;
+	//#endregion
+
+	readonly [key: string]: unknown;
 }
 
 export interface IChatSessionFileChange {

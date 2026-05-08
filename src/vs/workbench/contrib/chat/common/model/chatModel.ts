@@ -1583,6 +1583,13 @@ export interface IChatModel extends IDisposable {
 	readonly repoData: IExportableRepoData | undefined;
 	setRepoData(data: IExportableRepoData | undefined): void;
 
+	/**
+	 * The working directory URI associated with this session.
+	 * Only set in the sessions/agents window context.
+	 */
+	readonly workingDirectory: URI | undefined;
+	setWorkingDirectory(uri: URI | undefined): void;
+
 	readonly onDidChangePendingRequests: Event<void>;
 	getPendingRequests(): readonly IChatPendingRequest[];
 }
@@ -2103,6 +2110,14 @@ export class ChatModel extends Disposable implements IChatModel {
 	}
 	public setRepoData(data: IExportableRepoData | undefined): void {
 		this._repoData = data;
+	}
+
+	private _workingDirectory: URI | undefined;
+	public get workingDirectory(): URI | undefined {
+		return this._workingDirectory;
+	}
+	public setWorkingDirectory(uri: URI | undefined): void {
+		this._workingDirectory = uri;
 	}
 
 	getPendingRequests(): readonly IChatPendingRequest[] {
