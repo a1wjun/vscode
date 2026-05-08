@@ -191,8 +191,8 @@ class LocalChatSessionItem implements IChatSessionItem {
 			deletions: chatDetail.stats.removed,
 			files: chatDetail.stats.fileCount,
 		} : undefined;
-		const repoPath = chatDetail.workingDirectory?.scheme === Schemas.file ? chatDetail.workingDirectory.fsPath : undefined;
-		this.metadata = repoPath ? { workingDirectoryPath: repoPath } : undefined;
+		const workingDirectoryPath = chatDetail.workingDirectory?.scheme === Schemas.file ? chatDetail.workingDirectory.fsPath : undefined;
+		this.metadata = workingDirectoryPath ? { workingDirectoryPath: workingDirectoryPath } : undefined;
 	}
 
 	isEqual(other: LocalChatSessionItem): boolean {
