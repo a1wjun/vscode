@@ -697,7 +697,9 @@ export class RemoteNewSession extends Disposable implements ICopilotChatSession 
  * New session for local (in-process VS Code chat) sessions.
  * Implements {@link ICopilotChatSession} (session facade) for local sessions
  * that run in-process without worktrees or remote agents.
- * Keeps the underlying chat model reference alive via {@link attachKeepAlive}.
+ * Keeps the underlying chat model alive by retaining the
+ * {@link IChatModelReference} returned from `startNewLocalSession` for the
+ * lifetime of this object.
  */
 class LocalNewSession extends Disposable implements ICopilotChatSession {
 
