@@ -816,18 +816,26 @@ class LocalNewSession extends Disposable implements ICopilotChatSession {
 				const state = repo.state.read(reader);
 				const head = state.HEAD;
 				const branchName = head?.commit ? head.name : undefined;
+				const upstreamBranchName = head?.upstream
+					? `${head.upstream.remote}/${head.upstream.name}`
+					: undefined;
+				const uncommittedChanges = state.workingTreeChanges.length + state.untrackedChanges.length + state.indexChanges.length;
 
 				this._workspaceData.set({
 					...this.sessionWorkspace,
 					repositories: [{
 						...this.sessionWorkspace.repositories[0],
 						branchName,
+						upstreamBranchName,
+						uncommittedChanges,
 					}],
 				}, undefined);
 
 				this._changes.set(state.workingTreeChanges.concat(state.untrackedChanges).map<IChatSessionFileChange2>(el => {
 					return {
 						uri: el.uri,
+						originalUri: el.originalUri,
+						modifiedUri: el.modifiedUri ?? el.uri,
 						insertions: 0,
 						deletions: 0,
 					};

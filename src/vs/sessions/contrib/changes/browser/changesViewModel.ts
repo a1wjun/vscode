@@ -272,8 +272,9 @@ export class ChangesViewModel extends Disposable {
 			const metadata = this._activeSessionMetadataObs.read(reader);
 			const repositoryPath = metadata?.repositoryPath as string | undefined;
 			const worktreePath = metadata?.worktreePath as string | undefined;
+			const workingDirectoryPath = metadata?.workingDirectoryPath as string | undefined;
 
-			return worktreePath ?? repositoryPath;
+			return worktreePath ?? repositoryPath ?? workingDirectoryPath;
 		});
 
 		// Uncommitted changes

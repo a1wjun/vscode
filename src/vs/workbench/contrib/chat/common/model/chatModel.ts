@@ -1775,6 +1775,8 @@ export interface ISerializableChatData3 extends Omit<ISerializableChatData2, 've
 	repoData?: IExportableRepoData;
 	/** Pending requests that were queued but not yet processed */
 	pendingRequests?: ISerializablePendingRequestData[];
+	/** The working directory URI associated with this session (sessions/agents window). */
+	workingDirectory?: string;
 }
 
 /**
@@ -2381,6 +2383,8 @@ export class ChatModel extends Disposable implements IChatModel {
 
 		this._repoData = isValidFullData && initialData.repoData ? initialData.repoData : undefined;
 
+		this._workingDirectory = isValidFullData && initialData.workingDirectory ? URI.parse(initialData.workingDirectory) : undefined;
+
 		// Hydrate pending requests from serialized data
 		if (isValidFullData && initialData.pendingRequests) {
 			this._pendingRequests = this._deserializePendingRequests(initialData.pendingRequests);
@@ -2905,6 +2909,7 @@ export class ChatModel extends Disposable implements IChatModel {
 			creationDate: this._timestamp,
 			customTitle: this._customTitle,
 			inputState: this.inputModel.toJSON(),
+			workingDirectory: this._workingDirectory?.toString(),
 		};
 	}
 

@@ -766,6 +766,12 @@ export interface IChatSessionEntryMetadata {
 	lastResponseState: ResponseModelState;
 
 	/**
+	 * The working directory URI string associated with this session.
+	 * Persisted so it survives window reload in the agents/sessions window.
+	 */
+	workingDirectory?: string;
+
+	/**
 	 * This only exists because the migrated data from the storage service had empty sessions persisted, and it's impossible to know which ones are
 	 * currently in use. Now, `clearSession` deletes empty sessions, so old ones shouldn't take up space in the store anymore, but we still need to
 	 * filter the old ones out of history.
@@ -861,6 +867,7 @@ function getSessionMetadataSync(session: ChatModel): IChatSessionEntryMetadata {
 		lastResponseState,
 		permissionLevel: session.inputModel.state.get()?.permissionLevel,
 		inputState,
+		workingDirectory: session.workingDirectory?.toString(),
 	};
 }
 
