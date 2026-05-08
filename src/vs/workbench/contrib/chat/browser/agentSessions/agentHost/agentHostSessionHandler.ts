@@ -591,17 +591,13 @@ export class AgentHostSessionHandler extends Disposable implements IChatSessionC
 					if (sessionState.activeTurn) {
 						activeTurnId = sessionState.activeTurn.id;
 						const activeRawModelId = sessionState.activeTurn.usage?.model ?? fallbackRawModelId;
-						const requestItem: IChatSessionHistoryItem & { type: 'request' } = {
+						history.push({
 							type: 'request',
 							prompt: sessionState.activeTurn.userMessage.text,
 							participant: this._config.agentId,
 							modelId: lookup.toLanguageModelId(activeRawModelId),
-						};
-						const variableData = userMessageToVariableData(sessionState.activeTurn.userMessage, this._config.connectionAuthority);
-						if (variableData) {
-							requestItem.variableData = variableData;
-						}
-						history.push(requestItem);
+							variableData: userMessageToVariableData(sessionState.activeTurn.userMessage, this._config.connectionAuthority),
+						});
 						history.push({
 							type: 'response',
 							parts: [],
@@ -829,16 +825,12 @@ export class AgentHostSessionHandler extends Disposable implements IChatSessionC
 		// --- Steering ---
 		if (currentSteering) {
 			if (currentSteering.id !== prevSteering?.id || currentSteering.text !== prevSteering.userMessage.text) {
-				const userMessage: { text: string; attachments?: MessageAttachment[] } = { text: currentSteering.text };
-				if (currentSteering.attachments) {
-					userMessage.attachments = currentSteering.attachments;
-				}
 				this._dispatchAction({
 					type: ActionType.SessionPendingMessageSet,
 					session,
 					kind: PendingMessageKind.Steering,
 					id: currentSteering.id,
-					userMessage,
+					userMessage: { text: currentSteering.text, attachments: currentSteering.attachments },
 				});
 			}
 		} else if (prevSteering) {
@@ -868,16 +860,12 @@ export class AgentHostSessionHandler extends Disposable implements IChatSessionC
 		for (const q of currentQueued) {
 			const prev = prevQueuedById.get(q.id);
 			if (!prev || q.text !== prev.userMessage.text) {
-				const userMessage: { text: string; attachments?: MessageAttachment[] } = { text: q.text };
-				if (q.attachments) {
-					userMessage.attachments = q.attachments;
-				}
 				this._dispatchAction({
 					type: ActionType.SessionPendingMessageSet,
 					session,
 					kind: PendingMessageKind.Queued,
 					id: q.id,
-					userMessage,
+					userMessage: { text: q.text, attachments: q.attachments },
 				});
 			}
 		}

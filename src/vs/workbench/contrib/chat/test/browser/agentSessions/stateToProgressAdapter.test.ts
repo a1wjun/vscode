@@ -188,6 +188,7 @@ suite('stateToProgressAdapter', () => {
 				prompt: 'Use restored model',
 				participant: 'participant-1',
 				modelId: 'agent-host-copilot:gpt-5',
+				variableData: undefined,
 			});
 		});
 
