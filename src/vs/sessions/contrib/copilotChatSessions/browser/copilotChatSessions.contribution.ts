@@ -32,7 +32,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 			type: 'boolean',
 			default: false,
 			tags: ['experimental'],
-			description: localize('sessions.chat.localAgent.enabled', "Enable Local VS Code chat sessions in the Agents app. Start in-process chat sessions directly, without a background agent or worktree."),
+			description: localize('sessions.chat.localAgent.enabled', "Enable Local VS Code chat sessions in the Agents Window."),
 		},
 	},
 });
