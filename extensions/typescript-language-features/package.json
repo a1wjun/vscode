@@ -167,7 +167,7 @@
         "properties": {
           "js/ts.tsdk.path": {
             "type": "string",
-            "markdownDescription": "%js/ts.tsdk.path%",
+            "markdownDescription": "%typescript.tsdk.desc%",
             "scope": "window",
             "order": 1,
             "keywords": [
