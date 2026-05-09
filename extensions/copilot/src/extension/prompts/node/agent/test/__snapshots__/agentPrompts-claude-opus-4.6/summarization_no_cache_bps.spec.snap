@@ -115,20 +115,9 @@ Guidelines for session memory (`/memories/session/`):
 
 </memoryInstructions>
 
-~~~
-
-
-### User
-~~~md
-When generating code, please follow these user provided coding instructions. You can ignore an instruction if it contradicts a system message.
 <instructions>
 This is a test custom instruction file
 </instructions>
-<modeInstructions>
-You are currently running in "Plan" mode. Below are your instructions for this mode, they must take precedence over any instructions above.
-
-custom mode instructions
-</modeInstructions>
 
 ~~~
 
@@ -157,6 +146,16 @@ Repository memory (/memories/repo/) is empty. No workspace-scoped notes have bee
 
 ### User
 ~~~md
+<attachments>
+<attachment id="file" filePath="/workspace/file.ts">
+line 1
+line 2
+
+line 4
+line 5
+</attachment>
+
+</attachments>
 <context>
 (Date removed from snapshot)
 </context>
@@ -165,7 +164,7 @@ Do NOT create markdown files to document changes unless requested.
 
 </reminderInstructions>
 <userRequest>
-hello
+edit this file
 </userRequest>
 
 ~~~
