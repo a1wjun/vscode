@@ -382,7 +382,7 @@
         "command": "markdown.togglePreview",
         "key": "shift+ctrl+v",
         "mac": "shift+cmd+v",
-        "when": "(editorFocus && resourceLangId =~ /^(markdown|prompt|instructions|chatagent|skill)$/ && !notebookEditorFocused) || activeCustomEditorId == 'vscode.markdown.preview.editor'"
+        "when": "!terminalFocus && ((editorFocus && resourceLangId =~ /^(markdown|prompt|instructions|chatagent|skill)$/ && !notebookEditorFocused) || activeCustomEditorId == 'vscode.markdown.preview.editor')"
       }
     ],
     "configuration": [
