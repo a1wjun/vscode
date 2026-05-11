@@ -20,7 +20,7 @@ import { ILogService } from '../../log/common/logService';
 import { CUSTOM_TOOL_SEARCH_NAME } from '../../networking/common/anthropic';
 import { FinishedCallback, getRequestId, IResponseDelta, OpenAiFunctionTool, OpenAiResponsesFunctionTool, OpenAiToolSearchTool } from '../../networking/common/fetch';
 import { IChatEndpoint, ICreateEndpointBodyOptions, IEndpointBody } from '../../networking/common/networking';
-import { ChatCompletion, FilterReason, FinishedCompletionReason, modelsWithoutResponsesContextManagement, openAIContextManagementCompactionType, OpenAIContextManagementResponse, rawMessageToCAPI, TokenLogProb } from '../../networking/common/openai';
+import { APIErrorResponse, ChatCompletion, FilterReason, FinishedCompletionReason, modelsWithoutResponsesContextManagement, openAIContextManagementCompactionType, OpenAIContextManagementResponse, rawMessageToCAPI, TokenLogProb } from '../../networking/common/openai';
 import { IToolDeferralService } from '../../networking/common/toolDeferralService';
 import { sendEngineMessagesTelemetry, sendResponsesApiCompactionTelemetry } from '../../networking/node/chatStream';
 import { IChatWebSocketManager } from '../../networking/node/chatWebSocketManager';
@@ -896,8 +896,17 @@ interface CapiResponseCompletedEvent extends OpenAI.Responses.ResponseCompletedE
  * Terminal Responses-API events (`response.completed`, `response.incomplete`,
  * `response.failed`). CAPI extends the standard payload with a `content_filters`
  * array that carries the actual block reason when a response is cut short by a
- * content filter (e.g. `TextCopyright`). The OpenAI types don't include this
- * field, so we narrow with a local interface.
+ * content filter. The OpenAI types don't include this field, so we narrow with
+ * a local interface.
+ *
+ * Two shapes are observed on the wire and we handle both:
+ *  - `content_filter_results` is the per-category structured map defined by the
+ *    Azure REST spec ({@link https://learn.microsoft.com/azure/ai-services/openai/concepts/content-filter | docs});
+ *    e.g. `{ hate: { filtered: true, severity: 'high' }, protected_material_text: { filtered: true } }`.
+ *  - `content_filter_raw` is a CAPI-internal/legacy passthrough that carries the
+ *    raw RAI rule decisions (`{ action: 'BLOCK', label: 'TextCopyright', result: true }`)
+ *    and is not in the Azure spec. It's currently what production emits, so we
+ *    match it first and only fall back to the structured map.
  */
 interface CapiResponseTerminalEvent {
 	response: OpenAI.Responses.Response & {
@@ -909,7 +918,7 @@ interface CapiContentFilterEntry {
 	source_type?: 'prompt' | 'completion' | string;
 	blocked?: boolean;
 	content_filter_raw?: Array<{ action?: string; label?: string; result?: unknown }>;
-	content_filter_results?: Record<string, { filtered?: boolean; severity?: string } | undefined>;
+	content_filter_results?: Record<string, { filtered?: boolean; severity?: string; detected?: boolean } | undefined>;
 }
 
 /**
@@ -947,16 +956,36 @@ function extractFilterReasonFromContentFilters(filters: CapiContentFilterEntry[]
 	if (label.includes('hate')) {
 		return FilterReason.Hate;
 	}
-	// Fall back to the Azure-style per-category result map.
+	// Fall back to the Azure-spec'd per-category result map (`AzureContentFilterResultsForResponsesAPI`).
 	const results = completion.content_filter_results ?? {};
 	if (results.hate?.filtered) { return FilterReason.Hate; }
 	if (results.self_harm?.filtered) { return FilterReason.SelfHarm; }
 	if (results.sexual?.filtered) { return FilterReason.Sexual; }
 	if (results.violence?.filtered) { return FilterReason.Violence; }
+	if (results.protected_material_text?.filtered || results.protected_material_code?.filtered) {
+		return FilterReason.Copyright;
+	}
 	if (completion.source_type === 'prompt') {
 		return FilterReason.Prompt;
 	}
 	return undefined;
+}
+
+/**
+ * Map a Responses-API `response.error` (string-coded per the OpenAI SDK) onto
+ * our {@link APIErrorResponse} shape (numeric `code`). We can't preserve the
+ * string code in `code`, so we stash it in `metadata.code` for BYOK diagnostics
+ * (which `JSON.stringify` the whole struct).
+ */
+function mapResponsesApiError(err: OpenAI.Responses.ResponseError | null | undefined): APIErrorResponse | undefined {
+	if (!err) {
+		return undefined;
+	}
+	return {
+		code: 0,
+		message: err.message ?? '',
+		metadata: { code: err.code },
+	};
 }
 
 export class OpenAIResponsesProcessor {
@@ -1256,11 +1285,16 @@ export class OpenAIResponsesProcessor {
 					// caller surfaces a "request failed" message instead of the generic flake.
 					finishReason = FinishedCompletionReason.ServerError;
 				}
-				return this.buildTerminalCompletion(incomplete, finishReason, { filterReason });
+				return this.buildTerminalCompletion(incomplete, finishReason, {
+					filterReason,
+					error: mapResponsesApiError(incomplete.error),
+				});
 			}
 			case 'response.failed': {
 				const failed = chunk.response as CapiResponseTerminalEvent['response'];
-				return this.buildTerminalCompletion(failed, FinishedCompletionReason.ServerError);
+				return this.buildTerminalCompletion(failed, FinishedCompletionReason.ServerError, {
+					error: mapResponsesApiError(failed.error),
+				});
 			}
 		}
 	}
@@ -1274,7 +1308,7 @@ export class OpenAIResponsesProcessor {
 	private buildTerminalCompletion(
 		response: CapiResponseTerminalEvent['response'],
 		finishReason: FinishedCompletionReason,
-		opts: { filterReason?: FilterReason } = {}
+		opts: { filterReason?: FilterReason; error?: APIErrorResponse } = {}
 	): ChatCompletion {
 		const output = response.output ?? [];
 		return {
@@ -1306,6 +1340,7 @@ export class OpenAIResponsesProcessor {
 			} : undefined,
 			finishReason,
 			filterReason: opts.filterReason,
+			error: opts.error,
 			message: {
 				role: Raw.ChatRole.Assistant,
 				content: output.map((item): Raw.ChatCompletionContentPart | undefined => {

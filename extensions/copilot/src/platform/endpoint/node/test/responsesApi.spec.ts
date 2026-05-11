@@ -14,7 +14,7 @@ import { InMemoryConfigurationService } from '../../../configuration/test/common
 import { ILogService } from '../../../log/common/logService';
 import { isOpenAIContextManagementResponse } from '../../../networking/common/fetch';
 import { IChatEndpoint, ICreateEndpointBodyOptions } from '../../../networking/common/networking';
-import { openAIContextManagementCompactionType, OpenAIContextManagementResponse, FilterReason, FinishedCompletionReason } from '../../../networking/common/openai';
+import { ChatCompletion, openAIContextManagementCompactionType, OpenAIContextManagementResponse, FilterReason, FinishedCompletionReason } from '../../../networking/common/openai';
 import { IToolDeferralService } from '../../../networking/common/toolDeferralService';
 import { IChatWebSocketManager, NullChatWebSocketManager } from '../../../networking/node/chatWebSocketManager';
 import { TelemetryData } from '../../../telemetry/common/telemetryData';
@@ -1513,7 +1513,7 @@ describe('processResponseFromChatEndpoint terminal events', () => {
 			async () => undefined,
 			telemetryData
 		);
-		const completions = [];
+		const completions: ChatCompletion[] = [];
 		for await (const completion of stream) {
 			completions.push(completion);
 		}
@@ -1591,5 +1591,10 @@ describe('processResponseFromChatEndpoint terminal events', () => {
 
 		expect(completion).toBeDefined();
 		expect(completion.finishReason).toBe(FinishedCompletionReason.ServerError);
+		expect(completion.error).toEqual({
+			code: 0,
+			message: 'something broke',
+			metadata: { code: 'internal_error' },
+		});
 	});
 });
