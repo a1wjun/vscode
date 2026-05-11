@@ -147,22 +147,35 @@ describe('BackgroundTodoProcessor.shouldRun (policy)', () => {
 
 	// ── First-pass fast path ────────────────────────────────────
 
-	test('runs on first substantive call when no todos exist yet (initialActivity)', () => {
+	test('waits for initial threshold when no todos exist yet', () => {
 		const processor = new BackgroundTodoProcessor();
+		// Below INITIAL_SUBSTANTIVE_THRESHOLD
+		const rounds = Array.from({ length: BackgroundTodoProcessor.INITIAL_SUBSTANTIVE_THRESHOLD - 1 }, (_, i) => makeContextRound(`r${i}`));
+		if (rounds.length > 0) {
+			const result = processor.shouldRun(makeInput({
+				promptContext: makePromptContext({ toolCallRounds: rounds }),
+			}));
+			expect(result.decision).toBe(BackgroundTodoDecision.Wait);
+			expect(result.reason).toBe('belowThreshold');
+		}
+	});
+
+	test('runs when initial threshold is met (reads count)', () => {
+		const processor = new BackgroundTodoProcessor();
+		// Exactly INITIAL_SUBSTANTIVE_THRESHOLD context (read-only) calls — should fire.
+		const rounds = Array.from({ length: BackgroundTodoProcessor.INITIAL_SUBSTANTIVE_THRESHOLD }, (_, i) => makeContextRound(`r${i}`));
 		const result = processor.shouldRun(makeInput({
-			promptContext: makePromptContext({ toolCallRounds: [makeMeaningfulRound('r1')] }),
+			promptContext: makePromptContext({ toolCallRounds: rounds }),
 		}));
 		expect(result.decision).toBe(BackgroundTodoDecision.Run);
 		expect(result.reason).toBe('initialActivity');
 	});
 
-	test('runs on first read-only call when no todos exist yet (exploration counts)', () => {
+	test('runs when initial threshold is met by mutating calls', () => {
 		const processor = new BackgroundTodoProcessor();
-		// A pure-exploration session with a single read should still fire the
-		// first pass — the agent has done substantive work even if it hasn't
-		// mutated anything yet.
+		const rounds = Array.from({ length: BackgroundTodoProcessor.INITIAL_SUBSTANTIVE_THRESHOLD }, (_, i) => makeMeaningfulRound(`r${i}`));
 		const result = processor.shouldRun(makeInput({
-			promptContext: makePromptContext({ toolCallRounds: [makeContextRound('r1')] }),
+			promptContext: makePromptContext({ toolCallRounds: rounds }),
 		}));
 		expect(result.decision).toBe(BackgroundTodoDecision.Run);
 		expect(result.reason).toBe('initialActivity');
@@ -186,25 +199,27 @@ describe('BackgroundTodoProcessor.shouldRun (policy)', () => {
 
 	test('after first pass, waits until subsequent threshold is met', async () => {
 		const processor = new BackgroundTodoProcessor();
-		const dummyMeta = { newRoundCount: 1, newToolCallCount: 1, substantiveToolCallCount: 1, isInitialDelta: true, isRequestOnly: false };
+		const dummyMeta = { newRoundCount: 1, newToolCallCount: BackgroundTodoProcessor.INITIAL_SUBSTANTIVE_THRESHOLD, substantiveToolCallCount: BackgroundTodoProcessor.INITIAL_SUBSTANTIVE_THRESHOLD, isInitialDelta: true, isRequestOnly: false };
 		// Simulate a successful first pass so hasCreatedTodos becomes true.
 		processor.start(
-			{ userRequest: 'old', newRounds: [makeMeaningfulRound('r0')], history: [], sessionResource: undefined, metadata: dummyMeta },
+			{ userRequest: 'old', newRounds: Array.from({ length: BackgroundTodoProcessor.INITIAL_SUBSTANTIVE_THRESHOLD }, (_, i) => makeMeaningfulRound(`r${i}`)), history: [], sessionResource: undefined, metadata: dummyMeta },
 			async () => ({ outcome: 'success' })
 		);
 		await processor.waitForCompletion();
 		expect(processor.hasCreatedTodos).toBe(true);
 
-		// 2 substantive calls — below subsequent threshold of 3.
+		// One below subsequent threshold — should wait.
+		const belowRounds = Array.from({ length: BackgroundTodoProcessor.SUBSEQUENT_SUBSTANTIVE_THRESHOLD - 1 }, (_, i) => makeContextRound(`s${i}`));
 		const result1 = processor.shouldRun(makeInput({
-			promptContext: makePromptContext({ toolCallRounds: [makeContextRound('r1'), makeContextRound('r2')] }),
+			promptContext: makePromptContext({ toolCallRounds: belowRounds }),
 		}));
 		expect(result1.decision).toBe(BackgroundTodoDecision.Wait);
 		expect(result1.reason).toBe('belowThreshold');
 
-		// 3 substantive calls — meets subsequent threshold.
+		// Exactly subsequent threshold — should run.
+		const atRounds = Array.from({ length: BackgroundTodoProcessor.SUBSEQUENT_SUBSTANTIVE_THRESHOLD }, (_, i) => makeContextRound(`s${i}`));
 		const result2 = processor.shouldRun(makeInput({
-			promptContext: makePromptContext({ toolCallRounds: [makeContextRound('r1'), makeContextRound('r2'), makeMeaningfulRound('r3')] }),
+			promptContext: makePromptContext({ toolCallRounds: atRounds }),
 		}));
 		expect(result2.decision).toBe(BackgroundTodoDecision.Run);
 		expect(result2.reason).toBe('substantiveActivity');
@@ -212,21 +227,20 @@ describe('BackgroundTodoProcessor.shouldRun (policy)', () => {
 
 	test('subsequent threshold is met by any mix of substantive calls', async () => {
 		const processor = new BackgroundTodoProcessor();
-		const dummyMeta = { newRoundCount: 1, newToolCallCount: 1, substantiveToolCallCount: 1, isInitialDelta: true, isRequestOnly: false };
+		const dummyMeta = { newRoundCount: 1, newToolCallCount: BackgroundTodoProcessor.INITIAL_SUBSTANTIVE_THRESHOLD, substantiveToolCallCount: BackgroundTodoProcessor.INITIAL_SUBSTANTIVE_THRESHOLD, isInitialDelta: true, isRequestOnly: false };
 		processor.start(
-			{ userRequest: 'old', newRounds: [makeMeaningfulRound('r0')], history: [], sessionResource: undefined, metadata: dummyMeta },
+			{ userRequest: 'old', newRounds: Array.from({ length: BackgroundTodoProcessor.INITIAL_SUBSTANTIVE_THRESHOLD }, (_, i) => makeMeaningfulRound(`r${i}`)), history: [], sessionResource: undefined, metadata: dummyMeta },
 			async () => ({ outcome: 'success' })
 		);
 		await processor.waitForCompletion();
 
-		const round: IToolCallRound = {
-			id: 'r1', response: '', toolInputRetry: 0,
-			toolCalls: [
-				{ name: ToolName.ReadFile, arguments: '{}', id: 'tc-1' },
-				{ name: ToolName.FindTextInFiles, arguments: '{}', id: 'tc-2' },
-				{ name: ToolName.ReplaceString, arguments: '{}', id: 'tc-3' },
-			],
-		};
+		// SUBSEQUENT_SUBSTANTIVE_THRESHOLD calls in a new round (unique ID), mix of reads and edits.
+		const toolCalls = Array.from({ length: BackgroundTodoProcessor.SUBSEQUENT_SUBSTANTIVE_THRESHOLD }, (_, i) => ({
+			name: i % 2 === 0 ? ToolName.ReadFile : ToolName.ReplaceString,
+			arguments: '{}',
+			id: `tc-${i}`,
+		}));
+		const round: IToolCallRound = { id: 'subsequent-r1', response: '', toolInputRetry: 0, toolCalls };
 		const result = processor.shouldRun(makeInput({
 			promptContext: makePromptContext({ toolCallRounds: [round] }),
 		}));
