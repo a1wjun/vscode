@@ -59,6 +59,7 @@ export type BackgroundTodoDecisionReason =
 	| 'processorInProgress'
 	| 'initialPlanNeeded'
 	| 'initialActivity'
+	| 'initialBackoff'
 	| 'substantiveActivity'
 	| 'belowThreshold'
 	| 'todoListExistsNoNewActivity'
@@ -139,12 +140,22 @@ export class BackgroundTodoProcessor {
 	 *  beyond this. */
 	static readonly SUBSEQUENT_SUBSTANTIVE_THRESHOLD = 7;
 
+	/** Upper bound for the progressive initial-branch threshold.  After
+	 *  each no-op pass the required substantive call count doubles
+	 *  (INITIAL_SUBSTANTIVE_THRESHOLD × 2^n), capped here so exploration-heavy
+	 *  sessions keep getting checked — just less frequently — rather than
+	 *  stopping entirely. */
+	static readonly MAX_INITIAL_BACKOFF_THRESHOLD = 48;
+
 	private _state: BackgroundTodoProcessorState = BackgroundTodoProcessorState.Idle;
 	private _promise: Promise<void> | undefined;
 	private _cts: CancellationTokenSource | undefined;
 	private _lastError: unknown;
 	private _hasCreatedTodos: boolean = false;
 	private _passCount: number = 0;
+	/** Number of consecutive no-op passes that completed while no todos had been
+	 *  created yet.  Used to back off the initial-branch firing threshold. */
+	private _consecutiveInitialNoops: number = 0;
 
 	// ── Two-slot queue ──────────────────────────────────────────
 	// Regular passes coalesce into one slot; final review occupies a
@@ -218,17 +229,36 @@ export class BackgroundTodoProcessor {
 			return { decision: BackgroundTodoDecision.Wait, reason: 'initialPlanNeeded', delta };
 		}
 
-		// ── First-pass fast path ────────────────────────────────────
-		// No todos exist yet for this session: fire on the first sign of
-		// substantive work so even pure-exploration sessions get a plan
-		// before the user has waited too long. The fast model can no-op
-		// if it sees nothing planworthy.
-		if (!this._hasCreatedTodos && substantiveToolCallCount >= BackgroundTodoProcessor.INITIAL_SUBSTANTIVE_THRESHOLD) {
-			this._logService?.debug(`[BackgroundTodo] policy: Run (initialActivity) — substantive=${substantiveToolCallCount} >= initial threshold=${BackgroundTodoProcessor.INITIAL_SUBSTANTIVE_THRESHOLD}, rounds=${delta.metadata.newRoundCount}`);
-			return { decision: BackgroundTodoDecision.Run, reason: 'initialActivity', delta };
+		// ── First-pass fast path / progressive backoff ─────────────
+		// No todos exist yet for this session.  We want to fire early so
+		// even pure-exploration sessions get a plan as soon as there is
+		// something to track — but not re-invoke copilot-fast on every
+		// INITIAL_SUBSTANTIVE_THRESHOLD reads when the model keeps no-op'ing.
+		//
+		// After each no-op the required threshold doubles (exponential
+		// backoff), capped at MAX_INITIAL_BACKOFF_THRESHOLD so we keep
+		// checking occasionally rather than stopping entirely.
+		//
+		//   noop 0 → threshold  3  (INITIAL_SUBSTANTIVE_THRESHOLD)
+		//   noop 1 → threshold  6
+		//   noop 2 → threshold 12
+		//   noop 3 → threshold 24
+		//   noop 4+ → threshold 48 (MAX_INITIAL_BACKOFF_THRESHOLD, then steady)
+		if (!this._hasCreatedTodos) {
+			const effectiveThreshold = Math.min(
+				BackgroundTodoProcessor.INITIAL_SUBSTANTIVE_THRESHOLD << this._consecutiveInitialNoops,
+				BackgroundTodoProcessor.MAX_INITIAL_BACKOFF_THRESHOLD,
+			);
+			if (substantiveToolCallCount >= effectiveThreshold) {
+				this._logService?.debug(`[BackgroundTodo] policy: Run (initialActivity) — substantive=${substantiveToolCallCount} >= effective threshold=${effectiveThreshold} (noops=${this._consecutiveInitialNoops}), rounds=${delta.metadata.newRoundCount}`);
+				return { decision: BackgroundTodoDecision.Run, reason: 'initialActivity', delta };
+			}
+			const reason = this._consecutiveInitialNoops > 0 ? 'initialBackoff' : 'belowThreshold';
+			this._logService?.debug(`[BackgroundTodo] policy: Wait (${reason}) — substantive=${substantiveToolCallCount} < effective threshold=${effectiveThreshold} (noops=${this._consecutiveInitialNoops}), rounds=${delta.metadata.newRoundCount}`);
+			return { decision: BackgroundTodoDecision.Wait, reason, delta };
 		}
 
-		// ── Subsequent passes ───────────────────────────────────────
+		// ── Subsequent passes (todos already exist) ─────────────────
 		if (substantiveToolCallCount >= BackgroundTodoProcessor.SUBSEQUENT_SUBSTANTIVE_THRESHOLD) {
 			this._logService?.debug(`[BackgroundTodo] policy: Run (substantiveActivity) — substantive=${substantiveToolCallCount} >= threshold=${BackgroundTodoProcessor.SUBSEQUENT_SUBSTANTIVE_THRESHOLD}, rounds=${delta.metadata.newRoundCount}`);
 			return { decision: BackgroundTodoDecision.Run, reason: 'substantiveActivity', delta };
@@ -470,6 +500,11 @@ export class BackgroundTodoProcessor {
 				}
 				if (result.outcome === 'success') {
 					this._hasCreatedTodos = true;
+					this._consecutiveInitialNoops = 0;
+				} else if (!this._hasCreatedTodos) {
+					// noop on the initial branch — back off so exploration-heavy sessions
+					// don't re-invoke copilot-fast every INITIAL_SUBSTANTIVE_THRESHOLD reads.
+					this._consecutiveInitialNoops++;
 				}
 				this._logService?.debug(`[BackgroundTodo] pass #${passNum} completed: outcome=${result.outcome}, durationMs=${result.durationMs ?? '?'}, model=${result.model ?? '?'}, promptTokens=${result.promptTokens ?? '?'}, completionTokens=${result.completionTokens ?? '?'}`);
 				if (advanceCursor) {

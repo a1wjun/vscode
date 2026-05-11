@@ -307,4 +307,101 @@ describe('BackgroundTodoProcessor.shouldRun (policy)', () => {
 		await processor.waitForCompletion();
 		expect(processor.hasCreatedTodos).toBe(false);
 	});
+
+	// ── Initial-noop backoff ────────────────────────────────────
+
+	test('doubles effective threshold after each noop — below doubled threshold waits with initialBackoff', async () => {
+		const processor = new BackgroundTodoProcessor();
+
+		// One noop pass — effective threshold becomes 6 (INITIAL * 2).
+		const firstBatchRounds = Array.from({ length: BackgroundTodoProcessor.INITIAL_SUBSTANTIVE_THRESHOLD }, (_, i) => makeContextRound(`b0-r${i}`));
+		const meta = {
+			newRoundCount: firstBatchRounds.length,
+			newToolCallCount: BackgroundTodoProcessor.INITIAL_SUBSTANTIVE_THRESHOLD,
+			substantiveToolCallCount: BackgroundTodoProcessor.INITIAL_SUBSTANTIVE_THRESHOLD,
+			isInitialDelta: true,
+			isRequestOnly: false,
+		};
+		processor.start(
+			{ userRequest: 'test', newRounds: firstBatchRounds, history: [], sessionResource: undefined, metadata: meta },
+			async () => ({ outcome: 'noop' })
+		);
+		await processor.waitForCompletion();
+
+		// INITIAL_SUBSTANTIVE_THRESHOLD new reads — below doubled threshold (6), should wait.
+		const belowDoubled = Array.from({ length: BackgroundTodoProcessor.INITIAL_SUBSTANTIVE_THRESHOLD }, (_, i) => makeContextRound(`b1-r${i}`));
+		const result = processor.shouldRun(makeInput({
+			promptContext: makePromptContext({ toolCallRounds: belowDoubled }),
+		}));
+		expect(result.decision).toBe(BackgroundTodoDecision.Wait);
+		expect(result.reason).toBe('initialBackoff');
+	});
+
+	test('fires again when doubled threshold is reached after a noop', async () => {
+		const processor = new BackgroundTodoProcessor();
+
+		// One noop — effective threshold becomes 6.
+		const firstBatchRounds = Array.from({ length: BackgroundTodoProcessor.INITIAL_SUBSTANTIVE_THRESHOLD }, (_, i) => makeContextRound(`b0-r${i}`));
+		const meta = {
+			newRoundCount: firstBatchRounds.length,
+			newToolCallCount: BackgroundTodoProcessor.INITIAL_SUBSTANTIVE_THRESHOLD,
+			substantiveToolCallCount: BackgroundTodoProcessor.INITIAL_SUBSTANTIVE_THRESHOLD,
+			isInitialDelta: true,
+			isRequestOnly: false,
+		};
+		processor.start(
+			{ userRequest: 'test', newRounds: firstBatchRounds, history: [], sessionResource: undefined, metadata: meta },
+			async () => ({ outcome: 'noop' })
+		);
+		await processor.waitForCompletion();
+
+		// 6 new reads (INITIAL * 2) — should fire again.
+		const atDoubled = Array.from({ length: BackgroundTodoProcessor.INITIAL_SUBSTANTIVE_THRESHOLD * 2 }, (_, i) => makeContextRound(`b1-r${i}`));
+		const result = processor.shouldRun(makeInput({
+			promptContext: makePromptContext({ toolCallRounds: atDoubled }),
+		}));
+		expect(result.decision).toBe(BackgroundTodoDecision.Run);
+		expect(result.reason).toBe('initialActivity');
+	});
+
+	test('threshold is capped at MAX_INITIAL_BACKOFF_THRESHOLD and agent still monitors', async () => {
+		const processor = new BackgroundTodoProcessor();
+
+		// Exhaust enough noops to saturate the cap.
+		let threshold = BackgroundTodoProcessor.INITIAL_SUBSTANTIVE_THRESHOLD;
+		let batchIdx = 0;
+		while (threshold < BackgroundTodoProcessor.MAX_INITIAL_BACKOFF_THRESHOLD) {
+			const rounds = Array.from({ length: threshold }, (_, i) => makeContextRound(`b${batchIdx}-r${i}`));
+			const meta = {
+				newRoundCount: rounds.length,
+				newToolCallCount: threshold,
+				substantiveToolCallCount: threshold,
+				isInitialDelta: batchIdx === 0,
+				isRequestOnly: false,
+			};
+			processor.start(
+				{ userRequest: 'test', newRounds: rounds, history: [], sessionResource: undefined, metadata: meta },
+				async () => ({ outcome: 'noop' })
+			);
+			await processor.waitForCompletion();
+			threshold = Math.min(threshold * 2, BackgroundTodoProcessor.MAX_INITIAL_BACKOFF_THRESHOLD);
+			batchIdx++;
+		}
+		expect(processor.hasCreatedTodos).toBe(false);
+
+		// One below the cap — still waits.
+		const belowCap = Array.from({ length: BackgroundTodoProcessor.MAX_INITIAL_BACKOFF_THRESHOLD - 1 }, (_, i) => makeContextRound(`cap-r${i}`));
+		const waitResult = processor.shouldRun(makeInput({
+			promptContext: makePromptContext({ toolCallRounds: belowCap }),
+		}));
+		expect(waitResult.decision).toBe(BackgroundTodoDecision.Wait);
+
+		// Exactly the cap — still fires (agent never gives up).
+		const atCap = Array.from({ length: BackgroundTodoProcessor.MAX_INITIAL_BACKOFF_THRESHOLD }, (_, i) => makeContextRound(`cap-r${i}`));
+		const runResult = processor.shouldRun(makeInput({
+			promptContext: makePromptContext({ toolCallRounds: atCap }),
+		}));
+		expect(runResult.decision).toBe(BackgroundTodoDecision.Run);
+		expect(runResult.reason).toBe('initialActivity');
+	});
 });
