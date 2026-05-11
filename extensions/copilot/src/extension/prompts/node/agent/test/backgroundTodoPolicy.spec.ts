@@ -17,6 +17,10 @@ function makeRound(id: string, toolName: string = ToolName.ReadFile): IToolCallR
 	};
 }
 
+function makeContextRound(id: string): IToolCallRound {
+	return makeRound(id, ToolName.ReadFile);
+}
+
 function makeMeaningfulRound(id: string): IToolCallRound {
 	return makeRound(id, ToolName.ReplaceString);
 }
@@ -79,7 +83,7 @@ describe('BackgroundTodoProcessor.shouldRun (policy)', () => {
 
 	test('returns Wait when processor is already InProgress', async () => {
 		const processor = new BackgroundTodoProcessor();
-		const dummyMeta = { newRoundCount: 1, newToolCallCount: 1, meaningfulToolCallCount: 1, contextToolCallCount: 0, isInitialDelta: true, isRequestOnly: false };
+		const dummyMeta = { newRoundCount: 1, newToolCallCount: 1, substantiveToolCallCount: 1, isInitialDelta: true, isRequestOnly: false };
 		processor.start(
 			{ userRequest: 'old', newRounds: [makeMeaningfulRound('r0')], history: [], sessionResource: undefined, metadata: dummyMeta },
 			async () => {
@@ -124,7 +128,7 @@ describe('BackgroundTodoProcessor.shouldRun (policy)', () => {
 
 	test('skips when processor has already created todos and no new activity', async () => {
 		const processor = new BackgroundTodoProcessor();
-		const dummyMeta = { newRoundCount: 1, newToolCallCount: 1, meaningfulToolCallCount: 1, contextToolCallCount: 0, isInitialDelta: true, isRequestOnly: false };
+		const dummyMeta = { newRoundCount: 1, newToolCallCount: 1, substantiveToolCallCount: 1, isInitialDelta: true, isRequestOnly: false };
 		// Simulate a successful pass
 		processor.start(
 			{ userRequest: 'old', newRounds: [makeMeaningfulRound('r0')], history: [], sessionResource: undefined, metadata: dummyMeta },
@@ -141,70 +145,98 @@ describe('BackgroundTodoProcessor.shouldRun (policy)', () => {
 		expect(result.reason).toBe('noDelta');
 	});
 
-	// ── Meaningful activity ─────────────────────────────────────
+	// ── First-pass fast path ────────────────────────────────────
 
-	test('runs once meaningful tool calls reach threshold', () => {
+	test('runs on first substantive call when no todos exist yet (initialActivity)', () => {
 		const processor = new BackgroundTodoProcessor();
 		const result = processor.shouldRun(makeInput({
-			promptContext: makePromptContext({ toolCallRounds: [makeMeaningfulRound('r1'), makeMeaningfulRound('r2'), makeMeaningfulRound('r3')] }),
+			promptContext: makePromptContext({ toolCallRounds: [makeMeaningfulRound('r1')] }),
 		}));
 		expect(result.decision).toBe(BackgroundTodoDecision.Run);
-		expect(result.reason).toBe('meaningfulActivity');
+		expect(result.reason).toBe('initialActivity');
 	});
 
-	test('runs for meaningful activity even if context calls are below threshold', () => {
+	test('runs on first read-only call when no todos exist yet (exploration counts)', () => {
 		const processor = new BackgroundTodoProcessor();
+		// A pure-exploration session with a single read should still fire the
+		// first pass — the agent has done substantive work even if it hasn't
+		// mutated anything yet.
+		const result = processor.shouldRun(makeInput({
+			promptContext: makePromptContext({ toolCallRounds: [makeContextRound('r1')] }),
+		}));
+		expect(result.decision).toBe(BackgroundTodoDecision.Run);
+		expect(result.reason).toBe('initialActivity');
+	});
+
+	test('waits when delta contains only excluded tools (excluded calls do not count)', () => {
+		const processor = new BackgroundTodoProcessor();
+		const round: IToolCallRound = {
+			id: 'r1', response: '', toolInputRetry: 0,
+			toolCalls: [{ name: ToolName.CoreManageTodoList, arguments: '{}', id: 'tc-1' }],
+		};
+		const result = processor.shouldRun(makeInput({
+			promptContext: makePromptContext({ toolCallRounds: [round] }),
+		}));
+		// Excluded-only delta has 0 substantive calls → wait.
+		expect(result.decision).toBe(BackgroundTodoDecision.Wait);
+		expect(result.reason).toBe('belowThreshold');
+	});
+
+	// ── Subsequent passes ───────────────────────────────────────
+
+	test('after first pass, waits until subsequent threshold is met', async () => {
+		const processor = new BackgroundTodoProcessor();
+		const dummyMeta = { newRoundCount: 1, newToolCallCount: 1, substantiveToolCallCount: 1, isInitialDelta: true, isRequestOnly: false };
+		// Simulate a successful first pass so hasCreatedTodos becomes true.
+		processor.start(
+			{ userRequest: 'old', newRounds: [makeMeaningfulRound('r0')], history: [], sessionResource: undefined, metadata: dummyMeta },
+			async () => ({ outcome: 'success' })
+		);
+		await processor.waitForCompletion();
+		expect(processor.hasCreatedTodos).toBe(true);
+
+		// 2 substantive calls — below subsequent threshold of 3.
+		const result1 = processor.shouldRun(makeInput({
+			promptContext: makePromptContext({ toolCallRounds: [makeContextRound('r1'), makeContextRound('r2')] }),
+		}));
+		expect(result1.decision).toBe(BackgroundTodoDecision.Wait);
+		expect(result1.reason).toBe('belowThreshold');
+
+		// 3 substantive calls — meets subsequent threshold.
+		const result2 = processor.shouldRun(makeInput({
+			promptContext: makePromptContext({ toolCallRounds: [makeContextRound('r1'), makeContextRound('r2'), makeMeaningfulRound('r3')] }),
+		}));
+		expect(result2.decision).toBe(BackgroundTodoDecision.Run);
+		expect(result2.reason).toBe('substantiveActivity');
+	});
+
+	test('subsequent threshold is met by any mix of substantive calls', async () => {
+		const processor = new BackgroundTodoProcessor();
+		const dummyMeta = { newRoundCount: 1, newToolCallCount: 1, substantiveToolCallCount: 1, isInitialDelta: true, isRequestOnly: false };
+		processor.start(
+			{ userRequest: 'old', newRounds: [makeMeaningfulRound('r0')], history: [], sessionResource: undefined, metadata: dummyMeta },
+			async () => ({ outcome: 'success' })
+		);
+		await processor.waitForCompletion();
+
 		const round: IToolCallRound = {
 			id: 'r1', response: '', toolInputRetry: 0,
 			toolCalls: [
 				{ name: ToolName.ReadFile, arguments: '{}', id: 'tc-1' },
-				{ name: ToolName.ReplaceString, arguments: '{}', id: 'tc-2' },
+				{ name: ToolName.FindTextInFiles, arguments: '{}', id: 'tc-2' },
 				{ name: ToolName.ReplaceString, arguments: '{}', id: 'tc-3' },
-				{ name: ToolName.ReplaceString, arguments: '{}', id: 'tc-4' },
 			],
 		};
 		const result = processor.shouldRun(makeInput({
 			promptContext: makePromptContext({ toolCallRounds: [round] }),
 		}));
 		expect(result.decision).toBe(BackgroundTodoDecision.Run);
-		expect(result.reason).toBe('meaningfulActivity');
-	});
-
-	// ── Context-only activity ───────────────────────────────────
-
-	test('waits when only context tools and below threshold', () => {
-		const processor = new BackgroundTodoProcessor();
-		// 2 context-only calls < threshold of 5
-		const result = processor.shouldRun(makeInput({
-			promptContext: makePromptContext({ toolCallRounds: [makeRound('r1'), makeRound('r2')] }),
-		}));
-		expect(result.decision).toBe(BackgroundTodoDecision.Wait);
-		expect(result.reason).toBe('contextOnlyWaiting');
-	});
-
-	test('waits when only context tools, regardless of count', () => {
-		const processor = new BackgroundTodoProcessor();
-		const rounds = Array.from({ length: 10 }, (_, i) => makeRound(`r${i}`));
-		const result = processor.shouldRun(makeInput({
-			promptContext: makePromptContext({ toolCallRounds: rounds }),
-		}));
-		expect(result.decision).toBe(BackgroundTodoDecision.Wait);
-		expect(result.reason).toBe('contextOnlyWaiting');
-	});
-
-	test('waits when context-only tools are just below threshold', () => {
-		const processor = new BackgroundTodoProcessor();
-		const rounds = Array.from({ length: 4 }, (_, i) => makeRound(`r${i}`));
-		const result = processor.shouldRun(makeInput({
-			promptContext: makePromptContext({ toolCallRounds: rounds }),
-		}));
-		expect(result.decision).toBe(BackgroundTodoDecision.Wait);
-		expect(result.reason).toBe('contextOnlyWaiting');
+		expect(result.reason).toBe('substantiveActivity');
 	});
 
 	// ── Metadata ────────────────────────────────────────────────
 
-	test('delta from shouldRun contains meaningful/context counts', () => {
+	test('delta from shouldRun contains substantive count and excludes infrastructure tools', () => {
 		const processor = new BackgroundTodoProcessor();
 		const round: IToolCallRound = {
 			id: 'r1', response: '', toolInputRetry: 0,
@@ -217,8 +249,7 @@ describe('BackgroundTodoProcessor.shouldRun (policy)', () => {
 		const result = processor.shouldRun(makeInput({
 			promptContext: makePromptContext({ toolCallRounds: [round] }),
 		}));
-		expect(result.delta!.metadata.meaningfulToolCallCount).toBe(1);
-		expect(result.delta!.metadata.contextToolCallCount).toBe(1);
+		expect(result.delta!.metadata.substantiveToolCallCount).toBe(2);
 		expect(result.delta!.metadata.newToolCallCount).toBe(2); // excluded not counted
 	});
 
@@ -243,7 +274,7 @@ describe('BackgroundTodoProcessor.shouldRun (policy)', () => {
 
 	test('hasCreatedTodos becomes true after successful pass', async () => {
 		const processor = new BackgroundTodoProcessor();
-		const dummyMeta = { newRoundCount: 1, newToolCallCount: 1, meaningfulToolCallCount: 1, contextToolCallCount: 0, isInitialDelta: true, isRequestOnly: false };
+		const dummyMeta = { newRoundCount: 1, newToolCallCount: 1, substantiveToolCallCount: 1, isInitialDelta: true, isRequestOnly: false };
 		processor.start(
 			{ userRequest: 'test', newRounds: [makeMeaningfulRound('r1')], history: [], sessionResource: undefined, metadata: dummyMeta },
 			async () => ({ outcome: 'success' })
@@ -254,7 +285,7 @@ describe('BackgroundTodoProcessor.shouldRun (policy)', () => {
 
 	test('hasCreatedTodos stays false after noop pass', async () => {
 		const processor = new BackgroundTodoProcessor();
-		const dummyMeta = { newRoundCount: 1, newToolCallCount: 1, meaningfulToolCallCount: 1, contextToolCallCount: 0, isInitialDelta: true, isRequestOnly: false };
+		const dummyMeta = { newRoundCount: 1, newToolCallCount: 1, substantiveToolCallCount: 1, isInitialDelta: true, isRequestOnly: false };
 		processor.start(
 			{ userRequest: 'test', newRounds: [makeMeaningfulRound('r1')], history: [], sessionResource: undefined, metadata: dummyMeta },
 			async () => ({ outcome: 'noop' })
