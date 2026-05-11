@@ -129,9 +129,7 @@ export interface IBackgroundTodoResult {
 export class BackgroundTodoProcessor {
 
 	/** Minimum number of substantive tool calls to trigger the very first
-	 *  background pass (no todo list exists yet). One real tool call is
-	 *  enough — the agent has already done some work and any plan beats
-	 *  no plan. The fast model can still no-op if there's nothing to track. */
+	 *  background pass (no todo list exists yet). The fast model can still no-op if there's nothing to track. */
 	static readonly INITIAL_SUBSTANTIVE_THRESHOLD = 3;
 
 	/** Minimum number of substantive tool calls to trigger a subsequent
