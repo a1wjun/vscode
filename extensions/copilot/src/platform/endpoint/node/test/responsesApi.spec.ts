@@ -1542,7 +1542,7 @@ describe('processResponseFromChatEndpoint terminal events', () => {
 					},
 				],
 				output: [
-					{ type: 'message', content: [{ type: 'output_text', text: "Got it — I'll do that now." }] },
+					{ type: 'message', content: [{ type: 'output_text', text: 'Got it — I\'ll do that now.' }] },
 				],
 			},
 		};
