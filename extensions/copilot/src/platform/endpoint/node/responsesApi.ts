@@ -20,7 +20,7 @@ import { ILogService } from '../../log/common/logService';
 import { CUSTOM_TOOL_SEARCH_NAME } from '../../networking/common/anthropic';
 import { FinishedCallback, getRequestId, IResponseDelta, OpenAiFunctionTool, OpenAiResponsesFunctionTool, OpenAiToolSearchTool } from '../../networking/common/fetch';
 import { IChatEndpoint, ICreateEndpointBodyOptions, IEndpointBody } from '../../networking/common/networking';
-import { ChatCompletion, FinishedCompletionReason, modelsWithoutResponsesContextManagement, openAIContextManagementCompactionType, OpenAIContextManagementResponse, rawMessageToCAPI, TokenLogProb } from '../../networking/common/openai';
+import { ChatCompletion, FilterReason, FinishedCompletionReason, modelsWithoutResponsesContextManagement, openAIContextManagementCompactionType, OpenAIContextManagementResponse, rawMessageToCAPI, TokenLogProb } from '../../networking/common/openai';
 import { IToolDeferralService } from '../../networking/common/toolDeferralService';
 import { sendEngineMessagesTelemetry, sendResponsesApiCompactionTelemetry } from '../../networking/node/chatStream';
 import { IChatWebSocketManager } from '../../networking/node/chatWebSocketManager';
@@ -892,6 +892,73 @@ interface CapiResponseCompletedEvent extends OpenAI.Responses.ResponseCompletedE
 	};
 }
 
+/**
+ * Terminal Responses-API events (`response.completed`, `response.incomplete`,
+ * `response.failed`). CAPI extends the standard payload with a `content_filters`
+ * array that carries the actual block reason when a response is cut short by a
+ * content filter (e.g. `TextCopyright`). The OpenAI types don't include this
+ * field, so we narrow with a local interface.
+ */
+interface CapiResponseTerminalEvent {
+	response: OpenAI.Responses.Response & {
+		content_filters?: CapiContentFilterEntry[] | null;
+	};
+}
+
+interface CapiContentFilterEntry {
+	source_type?: 'prompt' | 'completion' | string;
+	blocked?: boolean;
+	content_filter_raw?: Array<{ action?: string; label?: string; result?: unknown }>;
+	content_filter_results?: Record<string, { filtered?: boolean; severity?: string } | undefined>;
+}
+
+/**
+ * Map CAPI's `content_filters` (sent on a terminal Responses event when a
+ * response is blocked) to a {@link FilterReason}. Returns `undefined` if no
+ * reason can be deduced; the caller defaults to {@link FilterReason.Copyright}.
+ */
+function extractFilterReasonFromContentFilters(filters: CapiContentFilterEntry[] | null | undefined): FilterReason | undefined {
+	if (!filters) {
+		return undefined;
+	}
+	// Prefer a completion-side block; if none, fall back to a prompt-side block.
+	const blocked = filters.filter(f => f.blocked);
+	const completion = blocked.find(f => f.source_type === 'completion') ?? blocked[0];
+	if (!completion) {
+		return undefined;
+	}
+	// Look for a definitive BLOCK action in content_filter_raw. The label
+	// `TextCopyright` maps to our Copyright filter; the multi-severity labels
+	// map to hate/self-harm/sexual/violence.
+	const blockingRule = completion.content_filter_raw?.find(r => r.action === 'BLOCK' && r.result === true);
+	const label = blockingRule?.label?.toLowerCase() ?? '';
+	if (label.includes('copyright')) {
+		return FilterReason.Copyright;
+	}
+	if (label.includes('selfharm') || label.includes('self_harm')) {
+		return FilterReason.SelfHarm;
+	}
+	if (label.includes('sexual')) {
+		return FilterReason.Sexual;
+	}
+	if (label.includes('violence')) {
+		return FilterReason.Violence;
+	}
+	if (label.includes('hate')) {
+		return FilterReason.Hate;
+	}
+	// Fall back to the Azure-style per-category result map.
+	const results = completion.content_filter_results ?? {};
+	if (results.hate?.filtered) { return FilterReason.Hate; }
+	if (results.self_harm?.filtered) { return FilterReason.SelfHarm; }
+	if (results.sexual?.filtered) { return FilterReason.Sexual; }
+	if (results.violence?.filtered) { return FilterReason.Violence; }
+	if (completion.source_type === 'prompt') {
+		return FilterReason.Prompt;
+	}
+	return undefined;
+}
+
 export class OpenAIResponsesProcessor {
 	private textAccumulator: string = '';
 	private hasReceivedReasoningSummary = false;
@@ -1174,7 +1241,82 @@ export class OpenAIResponsesProcessor {
 					}
 				};
 			}
+			case 'response.incomplete': {
+				const incomplete = chunk.response as CapiResponseTerminalEvent['response'];
+				const reason = incomplete.incomplete_details?.reason;
+				let finishReason: FinishedCompletionReason;
+				let filterReason: FilterReason | undefined;
+				if (reason === 'max_output_tokens') {
+					finishReason = FinishedCompletionReason.Length;
+				} else if (reason === 'content_filter') {
+					finishReason = FinishedCompletionReason.ContentFilter;
+					filterReason = extractFilterReasonFromContentFilters(incomplete.content_filters);
+				} else {
+					// Unknown incomplete reason — treat as a server-side stream termination so the
+					// caller surfaces a "request failed" message instead of the generic flake.
+					finishReason = FinishedCompletionReason.ServerError;
+				}
+				return this.buildTerminalCompletion(incomplete, finishReason, { filterReason });
+			}
+			case 'response.failed': {
+				const failed = chunk.response as CapiResponseTerminalEvent['response'];
+				return this.buildTerminalCompletion(failed, FinishedCompletionReason.ServerError);
+			}
 		}
+	}
+
+	/**
+	 * Build a {@link ChatCompletion} for a terminal Responses API event other than
+	 * `response.completed` (i.e. `response.incomplete` or `response.failed`). The
+	 * resulting completion is fed into the same downstream switch as a normal
+	 * completion so callers can map it to the appropriate user-facing error.
+	 */
+	private buildTerminalCompletion(
+		response: CapiResponseTerminalEvent['response'],
+		finishReason: FinishedCompletionReason,
+		opts: { filterReason?: FilterReason } = {}
+	): ChatCompletion {
+		const output = response.output ?? [];
+		return {
+			blockFinished: true,
+			choiceIndex: 0,
+			model: response.model,
+			tokens: [],
+			telemetryData: this.telemetryData,
+			requestId: {
+				headerRequestId: this.requestId,
+				gitHubRequestId: this.ghRequestId,
+				completionId: response.id,
+				created: response.created_at,
+				deploymentId: '',
+				serverExperiments: this.serverExperiments,
+			},
+			usage: response.usage ? {
+				prompt_tokens: response.usage.input_tokens ?? 0,
+				completion_tokens: response.usage.output_tokens ?? 0,
+				total_tokens: response.usage.total_tokens ?? 0,
+				prompt_tokens_details: {
+					cached_tokens: response.usage.input_tokens_details?.cached_tokens ?? 0,
+				},
+				completion_tokens_details: {
+					reasoning_tokens: response.usage.output_tokens_details?.reasoning_tokens ?? 0,
+					accepted_prediction_tokens: 0,
+					rejected_prediction_tokens: 0,
+				},
+			} : undefined,
+			finishReason,
+			filterReason: opts.filterReason,
+			message: {
+				role: Raw.ChatRole.Assistant,
+				content: output.map((item): Raw.ChatCompletionContentPart | undefined => {
+					if (item.type === 'message') {
+						return { type: Raw.ChatCompletionContentPartKind.Text, text: item.content.map(c => c.type === 'output_text' ? c.text : c.refusal).join('') };
+					} else if (item.type === 'image_generation_call' && item.result) {
+						return { type: Raw.ChatCompletionContentPartKind.Image, imageUrl: { url: item.result } };
+					}
+				}).filter(isDefined),
+			},
+		};
 	}
 }
 
