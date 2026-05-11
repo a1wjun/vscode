@@ -132,14 +132,14 @@ export class BackgroundTodoProcessor {
 	 *  background pass (no todo list exists yet). One real tool call is
 	 *  enough — the agent has already done some work and any plan beats
 	 *  no plan. The fast model can still no-op if there's nothing to track. */
-	static readonly INITIAL_SUBSTANTIVE_THRESHOLD = 1;
+	static readonly INITIAL_SUBSTANTIVE_THRESHOLD = 3;
 
 	/** Minimum number of substantive tool calls to trigger a subsequent
 	 *  background pass after the initial one. Higher than the initial
 	 *  threshold so the plan isn't re-rendered after every single tool
 	 *  call once a todo list already exists. Coalescing handles back-pressure
 	 *  beyond this. */
-	static readonly SUBSEQUENT_SUBSTANTIVE_THRESHOLD = 3;
+	static readonly SUBSEQUENT_SUBSTANTIVE_THRESHOLD = 7;
 
 	private _state: BackgroundTodoProcessorState = BackgroundTodoProcessorState.Idle;
 	private _promise: Promise<void> | undefined;
