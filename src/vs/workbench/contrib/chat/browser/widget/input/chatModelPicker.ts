@@ -85,7 +85,7 @@ function getVendorDisplayName(languageModelsService: ILanguageModelsService, ven
  * Identifies a provider group bucket in the model picker. A bucket is
  * defined by `(vendor, groupName)` so that BYOK setups with multiple
  * user-configured groups under the same vendor (e.g. two `customoai`
- * entries named "OpenAI Compatible" and "AWS Bedrock") are surfaced as
+ * entries named "Provider 1" and "Provider 2") are surfaced as
  * distinct sections — matching what the model configuration view shows.
  */
 type ProviderGroupKey = string;
