@@ -260,7 +260,7 @@ class CopilotCLISession extends Disposable implements ICopilotChatSession {
 		this.icon = CopilotCLISessionType.icon;
 		this.createdAt = new Date();
 
-		const repoUri = sessionWorkspace.folders[0]?.uri;
+		const repoUri = sessionWorkspace.folders[0]?.root;
 		if (repoUri) {
 			this._repoUri = repoUri;
 			this.setOption(REPOSITORY_OPTION_ID, repoUri.fsPath);
@@ -292,7 +292,7 @@ class CopilotCLISession extends Disposable implements ICopilotChatSession {
 	}
 
 	private async _resolveGitRepository(): Promise<void> {
-		const repoUri = this.sessionWorkspace.folders[0]?.uri;
+		const repoUri = this.sessionWorkspace.folders[0]?.root;
 		if (repoUri) {
 			try {
 				this._gitRepository = await this.gitService.openRepository(repoUri);
@@ -572,7 +572,7 @@ export class RemoteNewSession extends Disposable implements ICopilotChatSession 
 
 		// Set workspace data
 		this._workspaceData.set(sessionWorkspace, undefined);
-		this._repoUri = sessionWorkspace.folders[0]?.uri;
+		this._repoUri = sessionWorkspace.folders[0]?.root;
 		if (this._repoUri) {
 			const id = this._repoUri.path.substring(1);
 			this.setOption('repositories', { id, name: id });
@@ -800,7 +800,7 @@ class LocalNewSession extends Disposable implements ICopilotChatSession {
 			{ debugOwner: 'CopilotChatSessionsProvider#createNewSession.local' },
 		));
 		if (sessionWorkspace.folders.length > 0) {
-			modelRef.object.setWorkingDirectory(sessionWorkspace.folders[0]?.uri);
+			modelRef.object.setWorkingDirectory(sessionWorkspace.folders[0]?.root);
 		}
 		this.resource = modelRef.object.sessionResource;
 
@@ -819,7 +819,7 @@ class LocalNewSession extends Disposable implements ICopilotChatSession {
 	}
 
 	private async _resolveGitState(): Promise<void> {
-		const repoUri = this.sessionWorkspace.folders[0]?.uri;
+		const repoUri = this.sessionWorkspace.folders[0]?.root;
 		if (!repoUri) {
 			return;
 		}
@@ -1374,7 +1374,7 @@ class AgentSessionAdapter implements ICopilotChatSession {
 		}
 
 		// Parse from workspace repository URI (cloud sessions)
-		const repoUri = this._buildWorkspace(session)?.folders[0]?.uri;
+		const repoUri = this._buildWorkspace(session)?.folders[0]?.root;
 		if (repoUri && repoUri.scheme === GITHUB_REMOTE_FILE_SCHEME) {
 			const parts = repoUri.path.split('/').filter(Boolean);
 			if (parts.length >= 2) {
@@ -1498,7 +1498,7 @@ class AgentSessionAdapter implements ICopilotChatSession {
 		};
 
 		const folder: ISessionFolder = {
-			uri: repoUriResolved,
+			root: repoUriResolved,
 			workingDirectory: worktreeUri ?? repoUriResolved,
 			name: basename(repoUriResolved),
 			description: branchName,
@@ -1547,22 +1547,16 @@ class AgentSessionAdapter implements ICopilotChatSession {
 			return { repoUri: repositoryUri };
 		}
 
-		// Background/CLI sessions: check workingDirectoryPath first
-		const workingDirectoryPath = metadata?.workingDirectoryPath as string | undefined;
-		if (workingDirectoryPath) {
-			return { repoUri: URI.file(workingDirectoryPath) };
-		}
-
-		// Fall back to repositoryPath + worktreePath
-		const repositoryPath = metadata?.repositoryPath as string | undefined;
-		const repositoryPathUri = typeof repositoryPath === 'string' ? URI.file(repositoryPath) : undefined;
-
-		const worktreePath = metadata?.worktreePath as string | undefined;
-		const worktreePathUri = typeof worktreePath === 'string' ? URI.file(worktreePath) : undefined;
+		const repoUri = typeof metadata?.repositoryPath === 'string'
+			? URI.file(metadata.repositoryPath)
+			: undefined;
+		const worktreeUri = typeof metadata?.worktreePath === 'string'
+			? URI.file(metadata.worktreePath)
+			: undefined;
 
 		return {
-			repoUri: URI.isUri(repositoryPathUri) ? repositoryPathUri : undefined,
-			worktreeUri: URI.isUri(worktreePathUri) ? worktreePathUri : undefined,
+			repoUri,
+			worktreeUri,
 			branchName: metadata?.branchName as string | undefined,
 			baseBranchName: metadata?.baseBranchName as string | undefined,
 			baseBranchProtected: metadata?.baseBranchProtected as boolean | undefined,
@@ -2639,7 +2633,7 @@ export class CopilotChatSessionsProvider extends Disposable implements ISessions
 		if (repoId) {
 			const uri = URI.from({ scheme: GITHUB_REMOTE_FILE_SCHEME, authority: 'github', path: `/${repoId}/HEAD` });
 			const folder: ISessionFolder = {
-				uri,
+				root: uri,
 				workingDirectory: uri,
 				name: basename(uri),
 				description: undefined,
@@ -2662,7 +2656,7 @@ export class CopilotChatSessionsProvider extends Disposable implements ISessions
 			return undefined;
 		}
 		const folder: ISessionFolder = {
-			uri,
+			root: uri,
 			workingDirectory: uri,
 			name: basename(uri),
 			description: undefined,

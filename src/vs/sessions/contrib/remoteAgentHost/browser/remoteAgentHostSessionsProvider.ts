@@ -524,7 +524,7 @@ export class RemoteAgentHostSessionsProvider extends BaseAgentHostSessionsProvid
 			group: SESSION_WORKSPACE_GROUP_REMOTE,
 			icon: Codicon.remote,
 			folders: [{
-				uri,
+				root: uri,
 				workingDirectory: uri,
 				name: folderName,
 				description: undefined,

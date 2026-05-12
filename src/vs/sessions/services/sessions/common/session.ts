@@ -121,9 +121,9 @@ export interface ISessionGitRepository {
  * A folder within a session workspace.
  */
 export interface ISessionFolder {
-	/** Canonical URI of the folder (e.g., the repository root). */
-	readonly uri: URI;
-	/** Working directory used for file operations (e.g., a git worktree checkout path). */
+	/** Canonical URI of the folder. */
+	readonly root: URI;
+	/** Working directory used for file operations. */
 	readonly workingDirectory: URI;
 	/** Display name for the folder (e.g., repository or directory basename). */
 	readonly name: string;

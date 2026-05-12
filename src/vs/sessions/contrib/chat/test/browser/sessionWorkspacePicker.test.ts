@@ -60,7 +60,7 @@ function createMockProvider(id: string, opts?: {
 			label: uri.path.substring(1) || uri.path,
 			icon: Codicon.folder,
 			folders: [{
-				uri,
+				root: uri,
 				workingDirectory: uri,
 				name: uri.path.substring(1) || uri.path,
 				description: undefined,
@@ -407,7 +407,7 @@ suite('WorkspacePicker - Connection Status', () => {
 		remoteStatus.set(RemoteAgentHostConnectionStatus.connected, undefined);
 		assertSelectedProvider(picker, 'agenthost-remote-1');
 		assert.strictEqual(
-			picker.selectedProject?.workspace.folders[0]?.uri.path,
+			picker.selectedProject?.workspace.folders[0]?.root.path,
 			'/remote/project',
 		);
 	});
@@ -635,7 +635,7 @@ suite('WorkspacePicker - Tab discovery', () => {
 				icon: Codicon.folder,
 				group: 'Cloud',
 				folders: [{
-					uri,
+					root: uri,
 					workingDirectory: uri,
 					name: uri.path,
 					description: undefined,

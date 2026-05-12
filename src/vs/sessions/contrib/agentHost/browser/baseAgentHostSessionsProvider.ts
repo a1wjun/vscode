@@ -444,7 +444,7 @@ class NewSession extends Disposable {
 
 	constructor(ctx: INewSessionConstructionContext) {
 		super();
-		const workspaceUri = ctx.workspace.folders[0]?.uri;
+		const workspaceUri = ctx.workspace.folders[0]?.root;
 		if (!workspaceUri) {
 			throw new Error('Workspace has no repository URI');
 		}

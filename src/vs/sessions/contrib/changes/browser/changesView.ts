@@ -843,7 +843,7 @@ export class ChangesViewPane extends ViewPane {
 		const activeSession = this.sessionManagementService.activeSession.get();
 		const folder = activeSession?.workspace.get()?.folders[0];
 		const workspaceFolderUri = folder?.workingDirectory;
-		if (!folder?.uri || !workspaceFolderUri) {
+		if (!folder?.root || !workspaceFolderUri) {
 			return undefined;
 		}
 
@@ -998,7 +998,7 @@ export class ChangesViewPane extends ViewPane {
 					// Pass in the tree root to be used to compute the label description
 					const activeSession = this.sessionManagementService.activeSession.get();
 					const folder = activeSession?.workspace.get()?.folders[0];
-					return folder?.uri.scheme === GITHUB_REMOTE_FILE_SCHEME
+					return folder?.root.scheme === GITHUB_REMOTE_FILE_SCHEME
 						? URI.from({ scheme: Schemas.copilotPr, path: '/' })
 						: folder?.workingDirectory;
 				})],
