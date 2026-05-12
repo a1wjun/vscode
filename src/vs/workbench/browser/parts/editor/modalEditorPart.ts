@@ -403,6 +403,7 @@ export class ModalEditorPart {
 
 			const contextMenuDisposables = new DisposableStore();
 			const activeGroup = editorPart.activeGroup;
+			const activeEditor = activeGroup.activeEditor;
 			const editorScopedContextKeyService = activeGroup.activeEditorPane?.scopedContextKeyService ?? activeGroup.scopedContextKeyService;
 			const editorActions = activeGroup.createEditorActions(contextMenuDisposables, MenuId.EditorTitle);
 			const { primary, secondary } = editorActions.actions;
@@ -412,7 +413,7 @@ export class ModalEditorPart {
 				contextKeyService: editorScopedContextKeyService,
 				getAnchor: () => ({ x: e.clientX, y: e.clientY }),
 				getActions: () => Separator.join(primary, secondary),
-				getActionsContext: () => ({ groupId: activeGroup.id } satisfies IEditorCommandsContext),
+				getActionsContext: () => ({ groupId: activeGroup.id, editorIndex: activeEditor ? activeGroup.getIndexOfEditor(activeEditor) : undefined } satisfies IEditorCommandsContext),
 				getKeyBinding: action => this.keybindingService.lookupKeybinding(action.id, editorScopedContextKeyService),
 				onHide: () => contextMenuDisposables.dispose(),
 			});
