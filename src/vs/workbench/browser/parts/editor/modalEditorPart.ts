@@ -404,7 +404,7 @@ export class ModalEditorPart {
 			const contextMenuDisposables = new DisposableStore();
 			const activeGroup = editorPart.activeGroup;
 			const editorScopedContextKeyService = activeGroup.activeEditorPane?.scopedContextKeyService ?? activeGroup.scopedContextKeyService;
-			const editorActions = activeGroup.createEditorActions(contextMenuDisposables, MenuId.ModalEditorEditorTitle);
+			const editorActions = activeGroup.createEditorActions(contextMenuDisposables, MenuId.EditorTitle);
 			const { primary, secondary } = editorActions.actions;
 
 			this.contextMenuService.showContextMenu({
