@@ -174,7 +174,7 @@ class TestableSSHRemoteAgentHostMainService extends SSHRemoteAgentHostMainServic
 	hangRelayCreationOnCall: number | undefined;
 
 	/** Public override so tests can shorten the relay creation timeout. */
-	override relayCreationTimeoutMs: number = 30_000;
+	protected override relayCreationTimeoutMs: number = 30_000;
 
 	/** Stored onMessage callbacks from relays, most recent last. */
 	private readonly _relayMessageCallbacks: Array<(data: string) => void> = [];
