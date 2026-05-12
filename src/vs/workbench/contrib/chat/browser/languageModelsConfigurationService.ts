@@ -55,6 +55,10 @@ export class LanguageModelsConfigurationService extends Disposable implements IL
 		super();
 		this.modelsConfigurationFile = uriIdentityService.extUri.joinPath(userDataProfileService.currentProfile.location, 'chatLanguageModels.json');
 		this.updateLanguageModelsConfiguration();
+		// Watch the parent folder for reliable change detection across platforms (especially Windows
+		// where `fs.watch` on individual files can miss in-place writes).
+		this._register(fileService.watch(uriIdentityService.extUri.dirname(this.modelsConfigurationFile)));
+		// Also listen to the resource incase the resource is a symlink - https://github.com/microsoft/vscode/issues/118134
 		this._register(fileService.watch(this.modelsConfigurationFile));
 		this._register(fileService.onDidFilesChange(e => {
 			if (e.contains(this.modelsConfigurationFile)) {
