@@ -437,6 +437,11 @@ export class CodeSearchChunkSearch extends Disposable {
 	}
 
 	public isExternalIngestEnabled(): boolean | 'force' {
+		const copilotToken = this._authenticationService.copilotToken;
+		if (!copilotToken?.isBlackbirdExternalIndexingEnabled()) {
+			return false;
+		}
+
 		return this._configService.getExperimentBasedConfig<boolean>(ConfigKey.Advanced.WorkspaceEnableCodeSearchExternalIngest, this._experimentationService);
 	}
 
