@@ -159,6 +159,16 @@ suite('buildModelPickerItems', () => {
 		} as IActionListItem<IActionWidgetDropdownAction>), 'Claude Opus 4.7, Copilot, 15x');
 	});
 
+	test('accessibility provider prefers ariaDescription over description', () => {
+		const provider = getModelPickerAccessibilityProvider();
+		assert.strictEqual(provider.getAriaLabel({
+			kind: ActionListItemKind.Action,
+			label: 'Claude Sonnet 4.6',
+			description: new MarkdownString('$(circle-filled)$(circle-filled)$(circle)$(circle)'),
+			ariaDescription: 'Medium cost',
+		} as IActionListItem<IActionWidgetDropdownAction>), 'Claude Sonnet 4.6, Medium cost');
+	});
+
 	test('auto model always appears first', () => {
 		const auto = createAutoModel();
 		const modelA = createModel('gpt-4o', 'GPT-4o');
@@ -910,6 +920,9 @@ suite('buildModelPickerItems', () => {
 		assert.ok(gptItem.description instanceof MarkdownString);
 		assert.ok(gptItem.description.value.includes('circle-filled'));
 		assert.ok(gptItem.description.value.includes('circle'));
+		// ariaDescription should be a readable label for screen readers
+		assert.ok(typeof gptItem.ariaDescription === 'string');
+		assert.ok(!gptItem.ariaDescription.includes('circle'));
 	});
 
 	test('model with unknown priceCategory shows no circle indicators', () => {
