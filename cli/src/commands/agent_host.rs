@@ -3,7 +3,6 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-use std::convert::Infallible;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -11,45 +10,21 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-use ::http::{Request, Response};
-use hyper::body::Incoming;
-use hyper::service::service_fn;
-use hyper_util::rt::{TokioExecutor, TokioIo};
-use hyper_util::server::conn::auto::Builder as ServerBuilder;
-use serde::{Deserialize, Serialize};
-use tokio::net::TcpListener;
-
 use crate::auth::Auth;
 use crate::constants::{self, AGENT_HOST_PORT};
 use crate::log;
-use crate::tunnels::agent_host::{handle_request, AgentHostConfig, AgentHostManager};
+use crate::tunnels::agent_host::{AgentHostConfig, AgentHostManager, AgentHostSidecar, LoopbackAuth};
 use crate::tunnels::dev_tunnels::DevTunnels;
 use crate::tunnels::shutdown_signal::ShutdownRequest;
 use crate::update_service::Platform;
 use crate::util::errors::{AnyError, CodeError};
-use crate::util::http::{full_body, HyperBody, ReqwestSimpleHttp};
+use crate::util::http::ReqwestSimpleHttp;
 use crate::util::prereqs::PreReqChecker;
 
 use super::args::AgentHostArgs;
 use super::output;
 use super::tunnels::fulfill_existing_tunnel_args;
 use super::CommandContext;
-
-/// Bookkeeping data written to the agent host lockfile so that other CLI
-/// commands (e.g. `code agent ps`) can discover a running agent host.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentHostLockData {
-	/// WebSocket address the agent host is listening on (e.g. `ws://127.0.0.1:4567/`).
-	pub address: String,
-	/// PID of the CLI process running the agent host.
-	pub pid: u32,
-	/// Connection token, if any.
-	#[serde(skip_serializing_if = "Option::is_none")]
-	pub connection_token: Option<String>,
-	/// Tunnel name, if `--tunnel` was used.
-	#[serde(skip_serializing_if = "Option::is_none")]
-	pub tunnel_name: Option<String>,
-}
 
 /// Runs a local agent host server. Downloads the latest VS Code server on
 /// demand, starts it with `--enable-remote-auto-shutdown`, and proxies
@@ -111,31 +86,12 @@ pub async fn agent_host(ctx: CommandContext, mut args: AgentHostArgs) -> Result<
 		});
 	}
 
-	// Bind the HTTP/WebSocket proxy
-	let mut shutdown = ShutdownRequest::create_rx([ShutdownRequest::CtrlC]);
-
 	let addr: SocketAddr = match &args.host {
 		Some(h) => SocketAddr::new(h.parse().map_err(CodeError::InvalidHostAddress)?, args.port),
 		None => SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), args.port),
 	};
-	let listener = TcpListener::bind(addr)
-		.await
-		.map_err(CodeError::CouldNotListenOnInterface)?;
-	let bound_addr = listener
-		.local_addr()
-		.map_err(CodeError::CouldNotListenOnInterface)?;
 
-	let local_agent_host_url = format!("ws://{bound_addr}/");
-
-	let product = constants::QUALITYLESS_PRODUCT_NAME;
-	let token_suffix = args
-		.connection_token
-		.as_deref()
-		.map(|t| format!("?tkn={t}"))
-		.unwrap_or_default();
-
-	// If --tunnel is set, create a dev tunnel and serve connections directly.
-	let mut _tunnel_handle: Option<crate::tunnels::dev_tunnels::ActiveTunnel> = None;
+	let mut pending_tunnel = None;
 	let mut tunnel_name: Option<String> = None;
 	if args.tunnel {
 		let mut auth = Auth::new(&ctx.paths, ctx.log.clone());
@@ -151,37 +107,56 @@ pub async fn agent_host(ctx: CommandContext, mut args: AgentHostArgs) -> Result<
 				.await
 		}?;
 
+		tunnel_name = Some(tunnel.name.clone());
+		let tunnel_port = tunnel.add_port_direct(AGENT_HOST_PORT).await?;
+		pending_tunnel = Some((tunnel, tunnel_port));
+	}
+
+	// Bind the public listener and write the lockfile up front; the agent
+	// host backend is started lazily by the sidecar's manager on the first
+	// request.
+	let loopback_auth = match args.connection_token.clone() {
+		Some(token) => LoopbackAuth::Token(token),
+		None => {
+			// Reachable only via `--without-connection-token`; the token-minting
+			// branch above always populates `args.connection_token` otherwise.
+			LoopbackAuth::Disabled
+		}
+	};
+	let sidecar = AgentHostSidecar::bind_tcp(
+		ctx.log.clone(),
+		manager,
+		addr,
+		loopback_auth,
+		tunnel_name.clone(),
+		ctx.paths.agent_host_lockfile(),
+	)
+	.await?;
+	let bound_addr = sidecar.bound_addr();
+
+	let mut tunnel_handle: Option<crate::tunnels::dev_tunnels::ActiveTunnel> = None;
+	if let Some((tunnel, mut tunnel_port)) = pending_tunnel {
 		// Receive tunnel connections directly (no TCP forwarding) and serve
-		// them without connection-token enforcement — the tunnel relay
-		// provides its own authentication.
-		let mut tunnel_port = tunnel.add_port_direct(AGENT_HOST_PORT).await?;
-		let mgr_for_tunnel = manager.clone();
-		let tunnel_log = ctx.log.clone();
+		// them through the sidecar without connection-token enforcement —
+		// the tunnel relay provides its own authentication.
+		let sidecar_for_tunnel = sidecar.clone();
 		tokio::spawn(async move {
 			while let Some(socket) = tunnel_port.recv().await {
-				let mgr = mgr_for_tunnel.clone();
-				let log = tunnel_log.clone();
+				let sc = sidecar_for_tunnel.clone();
 				tokio::spawn(async move {
-					debug!(log, "Serving tunnel agent host connection");
-					let rw = socket.into_rw();
-					let svc = service_fn(move |req| {
-						let mgr = mgr.clone();
-						async move { handle_request(mgr, req).await }
-					});
-					let io = TokioIo::new(rw);
-					if let Err(e) = ServerBuilder::new(TokioExecutor::new())
-						.serve_connection_with_upgrades(io, svc)
-						.await
-					{
-						debug!(log, "Tunnel agent host connection ended: {:?}", e);
-					}
+					sc.serve_tunnel_connection(socket.into_rw()).await;
 				});
 			}
 		});
-
-		tunnel_name = Some(tunnel.name.clone());
-		_tunnel_handle = Some(tunnel);
+		tunnel_handle = Some(tunnel);
 	}
+
+	let product = constants::QUALITYLESS_PRODUCT_NAME;
+	let token_suffix = args
+		.connection_token
+		.as_deref()
+		.map(|t| format!("?tkn={t}"))
+		.unwrap_or_default();
 
 	output::print_banner_header(&format!("{product} Agent Host"), started.elapsed());
 	if let (Some(base), Some(name)) = (constants::EDITOR_WEB_URL, &tunnel_name) {
@@ -190,94 +165,18 @@ pub async fn agent_host(ctx: CommandContext, mut args: AgentHostArgs) -> Result<
 	output::print_network_lines(bound_addr.port(), addr.ip(), &token_suffix);
 	output::print_banner_footer();
 
-	// Write lockfile so `code agent ps` can discover this instance.
-	let lockfile_path = ctx.paths.agent_host_lockfile();
-	let lock_data = AgentHostLockData {
-		address: local_agent_host_url,
-		pid: std::process::id(),
-		connection_token: args.connection_token.clone(),
-		tunnel_name: tunnel_name.clone(),
-	};
-	if let Err(e) = write_agent_host_lockfile(&lockfile_path, &lock_data) {
-		warning!(ctx.log, "Failed to write agent host lockfile: {}", e);
-	}
+	let shutdown = ShutdownRequest::create_rx([ShutdownRequest::CtrlC]);
+	let accept_result = sidecar.serve(shutdown).await;
 
-	let manager_for_svc = manager.clone();
-	let expected_token = args.connection_token.clone();
+	sidecar.shutdown().await;
 
-	// Accept loop: for each incoming TCP connection, serve it with hyper.
-	let accept_result: Result<(), AnyError> = loop {
-		tokio::select! {
-			_ = shutdown.wait() => break Ok(()),
-			accepted = listener.accept() => {
-				let (stream, _) = match accepted {
-					Ok(v) => v,
-					Err(e) => {
-						warning!(ctx.log, "Failed to accept connection: {}", e);
-						continue;
-					}
-				};
-				let mgr = manager_for_svc.clone();
-				let token = expected_token.clone();
-				tokio::spawn(async move {
-					let io = TokioIo::new(stream);
-					let svc = service_fn(move |req| {
-						let mgr = mgr.clone();
-						let token = token.clone();
-						async move { handle_request_with_auth(mgr, req, token).await }
-					});
-					if let Err(e) = ServerBuilder::new(TokioExecutor::new())
-						.serve_connection_with_upgrades(io, svc)
-						.await
-					{
-						// Connection-level errors are normal (client disconnect, etc.)
-						let _ = e;
-					}
-				});
-			}
-		}
-	};
-
-	manager.kill_running_server().await;
-
-	// Close the tunnel if one was created.
-	if let Some(mut tunnel) = _tunnel_handle.take() {
+	if let Some(mut tunnel) = tunnel_handle.take() {
 		tunnel.close().await.ok();
 	}
-
-	// Clean up the lockfile.
-	let _ = fs::remove_file(&lockfile_path);
 
 	accept_result?;
 
 	Ok(0)
-}
-
-/// Wraps [`handle_request`] with connection-token enforcement.
-///
-/// When `expected_token` is `Some`, the proxy requires `?tkn=<token>` on
-/// the request URI. This only applies to the local TCP listener; tunnel
-/// connections are served directly via `add_port_direct` and bypass this
-/// function entirely.
-async fn handle_request_with_auth(
-	manager: Arc<AgentHostManager>,
-	req: Request<Incoming>,
-	expected_token: Option<String>,
-) -> Result<Response<HyperBody>, Infallible> {
-	if let Some(ref token) = expected_token {
-		let uri_query = req.uri().query().unwrap_or("");
-		let has_valid_token = url::form_urlencoded::parse(uri_query.as_bytes())
-			.any(|(k, v)| k == "tkn" && v == token.as_str());
-
-		if !has_valid_token {
-			return Ok(Response::builder()
-				.status(403)
-				.body(full_body("Forbidden: missing or invalid connection token"))
-				.unwrap());
-		}
-	}
-
-	handle_request(manager, req).await
 }
 
 fn mint_connection_token(path: &Path, prefer_token: Option<String>) -> std::io::Result<String> {
@@ -305,22 +204,6 @@ fn mint_connection_token(path: &Path, prefer_token: Option<String>) -> std::io::
 	let prefer_token = prefer_token.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 	file.write_all(prefer_token.as_bytes())?;
 	Ok(prefer_token)
-}
-
-fn write_agent_host_lockfile(path: &Path, lock_data: &AgentHostLockData) -> std::io::Result<()> {
-	#[cfg(not(windows))]
-	use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-
-	let mut file_options = fs::OpenOptions::new();
-	file_options.create(true);
-	file_options.write(true);
-	file_options.truncate(true);
-	#[cfg(not(windows))]
-	file_options.mode(0o600);
-	let mut file = file_options.open(path)?;
-	#[cfg(not(windows))]
-	file.set_permissions(fs::Permissions::from_mode(0o600))?;
-	file.write_all(serde_json::to_string(lock_data).unwrap().as_bytes())
 }
 
 #[cfg(test)]

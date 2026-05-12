@@ -544,10 +544,12 @@ export class SSHRemoteAgentHostMainService extends Disposable implements ISSHRem
 
 			reportProgress(localize('sshProgressCheckingAgent', "Checking for existing agent host..."));
 			const exec = bindSshExec(sshClient);
-			const existingAH = await findRunningAgentHost(exec, this._logService, this._quality);
-			if (existingAH) {
+			const existingAH = await findRunningAgentHost(exec, this._logService, this._dataFolderName, this._quality);
+			if (existingAH.kind === 'compatible') {
 				remotePort = existingAH.port;
 				connectionToken = existingAH.connectionToken;
+			} else if (existingAH.kind === 'incompatible') {
+				throw new Error(localize('sshAgentHostIncompatible', "The remote agent host is running with incompatible protocol metadata (PID {0}, port {1}). Update VS Code on the remote machine, or stop that process, then try again.", existingAH.pid, existingAH.port));
 			}
 
 			if (remotePort === undefined) {
@@ -559,7 +561,7 @@ export class SSHRemoteAgentHostMainService extends Disposable implements ISSHRem
 				agentStream = result.stream;
 
 				// Record state for future reuse
-				await writeAgentHostState(exec, this._logService, this._quality, result.pid, remotePort, connectionToken);
+				await writeAgentHostState(exec, this._logService, this._dataFolderName, this._quality, result.pid, remotePort, connectionToken);
 			}
 
 			// 6. Connect to remote agent host via WebSocket relay (no local TCP port)
@@ -574,20 +576,20 @@ export class SSHRemoteAgentHostMainService extends Disposable implements ISSHRem
 					() => { conn?.dispose(); },
 				);
 			} catch (relayErr) {
-				if (!existingAH) {
+				if (existingAH.kind !== 'compatible') {
 					throw relayErr;
 				}
 				// The reused agent host is not connectable — kill it and start fresh
 				const relayErrorMessage = relayErr instanceof Error ? relayErr.message : String(relayErr);
 				this._logService.warn(`${LOG_PREFIX} Failed to connect to reused agent host on port ${remotePort}: ${relayErrorMessage}. Starting fresh`);
-				await cleanupRemoteAgentHost(exec, this._logService, this._quality);
+				await cleanupRemoteAgentHost(exec, this._logService, this._dataFolderName, this._quality);
 
 				reportProgress(localize('sshProgressStartingAgent', "Starting remote agent host..."));
 				const result = await this._startRemoteAgentHost(sshClient, this._quality, config.remoteAgentHostCommand);
 				remotePort = result.port;
 				connectionToken = result.connectionToken;
 				agentStream = result.stream;
-				await writeAgentHostState(exec, this._logService, this._quality, result.pid, remotePort, connectionToken);
+				await writeAgentHostState(exec, this._logService, this._dataFolderName, this._quality, result.pid, remotePort, connectionToken);
 
 				reportProgress(localize('sshProgressForwarding', "Connecting to remote agent host..."));
 				relay = await this._createWebSocketRelay(
@@ -971,7 +973,11 @@ export class SSHRemoteAgentHostMainService extends Disposable implements ISSHRem
 	}
 
 	private get _quality(): string {
-		return this._productService.quality || 'insider';
+		return this._productService.quality || 'oss';
+	}
+
+	private get _dataFolderName(): string {
+		return this._productService.dataFolderName;
 	}
 
 	protected _startRemoteAgentHost(
