@@ -248,6 +248,26 @@
 		"bierner.markdown-mermaid",
 		"kisstkondoros.vscode-gutter-preview",
 		"tomoki1207.pdf",
-		"vscodevim.vim"
+		"vscodevim.vim",
+		"ecmel.vscode-html-css",
+		"bradlc.vscode-tailwindcss",
+		"svelte.svelte-vscode",
+		"xabikos.JavaScriptSnippets",
+		"dsznajder.es7-react-js-snippets",
+		"formulahendry.auto-rename-tag",
+		"oderwat.indent-rainbow",
+		"YoavBls.pretty-ts-errors",
+		"usernamehw.errorlens",
+		"stylelint.vscode-stylelint",
+		"biomejs.biome",
+		"pranaygp.vscode-css-peek",
+		"naumovs.color-highlight",
+		"streetsidesoftware.code-spell-checker",
+		"Vue.volar",
+		"dbaeumer.vscode-eslint",
+		"esbenp.prettier-vscode",
+		"redhat.vscode-xml",
+		"redhat.java",
+		"shengchen.vscode-checkstyle"
 	]
 }
