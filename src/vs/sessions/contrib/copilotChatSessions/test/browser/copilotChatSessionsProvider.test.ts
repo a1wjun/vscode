@@ -865,7 +865,7 @@ suite('CopilotChatSessionsProvider', () => {
 		assert.ok(workspace, 'resolveWorkspace should resolve file:// URIs');
 		assert.strictEqual(workspace.label, 'project');
 		assert.strictEqual(workspace.folders.length, 1);
-		assert.strictEqual(workspace.folders[0].uri.toString(), uri.toString());
+		assert.strictEqual(workspace.folders[0].root.toString(), uri.toString());
 		assert.strictEqual(workspace.requiresWorkspaceTrust, true);
 	});
 
@@ -879,12 +879,12 @@ suite('CopilotChatSessionsProvider', () => {
 
 		assert.ok(workspace);
 		assert.strictEqual(workspace.folders.length, 1);
-		assert.strictEqual(workspace.folders[0].uri.toString(), URI.parse('unknown:///').toString());
+		assert.strictEqual(workspace.folders[0].root.toString(), URI.parse('unknown:///').toString());
 		assert.strictEqual(workspace.requiresWorkspaceTrust, true);
 
 		// The core symptom of #310777: any of these calls must not throw.
-		assert.doesNotThrow(() => URI.joinPath(workspace.folders[0].uri, '.vscode', 'settings.json'));
-		assert.doesNotThrow(() => URI.joinPath(workspace.folders[0].uri, '.vscode/extensions.json'));
+		assert.doesNotThrow(() => URI.joinPath(workspace.folders[0].root, '.vscode', 'settings.json'));
+		assert.doesNotThrow(() => URI.joinPath(workspace.folders[0].root, '.vscode/extensions.json'));
 	});
 
 	// ---- Claude session creation -------

@@ -155,7 +155,7 @@ export class LocalAgentHostSessionsProvider extends BaseAgentHostSessionsProvide
 			group: SESSION_WORKSPACE_GROUP_LOCAL,
 			icon: Codicon.folder,
 			folders: [{
-				uri: repositoryUri,
+				root: repositoryUri,
 				workingDirectory: repositoryUri,
 				name: folderName,
 				description: undefined,

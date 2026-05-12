@@ -69,7 +69,7 @@ function makeSession(resource: URI, opts?: {
 			label: 'test',
 			icon: Codicon.repo,
 			folders: [{
-				uri: URI.file('/repo'),
+				root: URI.file('/repo'),
 				workingDirectory: URI.file('/repo'),
 				name: 'repo',
 				description: undefined,

@@ -134,7 +134,7 @@ suite('CodeReviewService', () => {
 				label: 'workspace',
 				icon: Codicon.folder,
 				folders: [{
-					uri: workspaceUri,
+					root: workspaceUri,
 					workingDirectory: workspaceUri,
 					name: 'workspace',
 					description: undefined,

@@ -543,8 +543,8 @@ class SessionItemRenderer implements ITreeRenderer<SessionListItem, FuzzyScore, 
 	private getWorkspaceBadgeLabel(workspace: ISessionWorkspace): string | undefined {
 		// For GitHub remote sessions, extract owner/name from the repository URI path
 		const folder = workspace.folders[0];
-		if (folder?.uri.scheme === GITHUB_REMOTE_FILE_SCHEME) {
-			const parts = folder.uri.path.split('/').filter(Boolean);
+		if (folder?.root.scheme === GITHUB_REMOTE_FILE_SCHEME) {
+			const parts = folder.root.path.split('/').filter(Boolean);
 			if (parts.length >= 2) {
 				return `${parts[0]}/${parts[1]}`;
 			}
@@ -1530,7 +1530,7 @@ function sessionMatchesFolder(session: ISession, folder: URI): boolean {
 	}
 	const folderStr = folder.toString();
 	for (const folder of workspace.folders) {
-		if (folder.workingDirectory?.toString() === folderStr || folder.uri.toString() === folderStr) {
+		if (folder.workingDirectory?.toString() === folderStr || folder.root.toString() === folderStr) {
 			return true;
 		}
 	}

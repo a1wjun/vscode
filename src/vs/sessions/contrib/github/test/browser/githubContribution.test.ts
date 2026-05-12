@@ -185,7 +185,7 @@ class TestSession implements ISession {
 			label: id,
 			icon: Codicon.folder,
 			folders: [{
-				uri: workspaceUri,
+				root: workspaceUri,
 				workingDirectory: workspaceUri,
 				name: id,
 				description: undefined,

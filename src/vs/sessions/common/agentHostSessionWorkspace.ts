@@ -78,7 +78,7 @@ export function agentHostSessionWorkspaceKey(workspace: ISessionWorkspace | unde
 	const repo = folder.gitRepository;
 	return [
 		workspace.label,
-		extUri.getComparisonKey(folder.uri),
+		extUri.getComparisonKey(folder.root),
 		folder.workingDirectory ? extUri.getComparisonKey(folder.workingDirectory) : '',
 		repo?.branchName ?? '',
 		repo?.baseBranchName ?? '',
@@ -113,7 +113,7 @@ export function buildAgentHostSessionWorkspace(project: IAgentHostSessionProject
 			icon: Codicon.repo,
 			group: options.group,
 			folders: [{
-				uri: project.uri,
+				root: project.uri,
 				workingDirectory: workingDirectory ?? project.uri,
 				name: project.displayName,
 				description: options.description,
@@ -136,7 +136,7 @@ export function buildAgentHostSessionWorkspace(project: IAgentHostSessionProject
 		icon: options.fallbackIcon,
 		group: options.group,
 		folders: [{
-			uri: workingDirectory,
+			root: workingDirectory,
 			workingDirectory,
 			name: folderName,
 			description: options.description,
