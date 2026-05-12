@@ -279,6 +279,11 @@ class TestableSSHRemoteAgentHostMainService extends SSHRemoteAgentHostMainServic
 			this._relayCloseCallbacks[this._relayCloseCallbacks.length - 1]();
 		}
 	}
+
+	/** Sets the relay creation timeout; exposed for tests only. */
+	setRelayCreationTimeoutForTest(ms: number): void {
+		this.relayCreationTimeoutMs = ms;
+	}
 }
 
 suite('SSHRemoteAgentHostMainService - connect flow', () => {
@@ -1017,7 +1022,7 @@ suite('SSHRemoteAgentHostMainService - connect flow', () => {
 		assert.strictEqual(originalClient.ended, false);
 
 		// Use a short timeout so the test completes quickly.
-		service.relayCreationTimeoutMs = 50;
+		service.setRelayCreationTimeoutForTest(50);
 		// Make the *reconnect* call's relay creation hang (the second relay).
 		service.hangRelayCreationOnCall = 2;
 
