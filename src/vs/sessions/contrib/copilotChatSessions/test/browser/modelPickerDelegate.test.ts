@@ -81,6 +81,7 @@ function stubServices(
 	instantiationService.stub(IChatEntitlementService, {
 		quotas: {},
 		onDidChangeQuotaRemaining: Event.None,
+		onDidChangeUsageBasedBilling: Event.None,
 		onDidChangeEntitlement: Event.None,
 	} as Partial<IChatEntitlementService>);
 
