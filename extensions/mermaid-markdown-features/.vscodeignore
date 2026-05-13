@@ -1,4 +1,5 @@
 src/**
+preview-src/**
 esbuild.*
 cgmanifest.json
 package-lock.json

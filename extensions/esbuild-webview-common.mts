@@ -2,15 +2,16 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
-
 /**
  * Common build script for extension scripts used in in webviews.
  */
+
+import type esbuild from 'esbuild';
 import { runBuild, type RunConfig } from './esbuild-common.mts';
 
-const baseOptions = {
+const baseOptions: esbuild.BuildOptions = {
 	bundle: true,
-	minify: true,
+	minify: false,
 	sourcemap: false,
 	format: 'esm' as const,
 	platform: 'browser' as const,

@@ -1,5 +1,5 @@
 {
-	"extends": "../../tsconfig.base.json",
+	"extends": "../../../tsconfig.base.json",
 	"compilerOptions": {
 		"rootDir": ".",
 		"outDir": "./dist/",
@@ -13,7 +13,7 @@
 			"node"
 		],
 		"typeRoots": [
-			"../node_modules/@types"
+			"../../node_modules/@types"
 		]
 	}
 }
