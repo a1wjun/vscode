@@ -270,13 +270,17 @@ export async function setupServerServices(connectionToken: ServerConnectionToken
 		disposables.add(instantiationService.createInstance(ServerAgentHostManager, agentHostStarter));
 	}
 
-	// The bridge defaults to the spawned agent host's endpoint when the
-	// `--agent-host-bridge-*` flags are not set.
-	const bridgePort = args['agent-host-bridge-port'] ?? spawnPort;
-	const bridgePath = args['agent-host-bridge-path'] ?? spawnPath;
+	// The bridge requires an explicit upstream — we do NOT fall back to
+	// the spawn port. When `--agent-host-port=0` is used the OS picks a
+	// port at runtime that this server has no way of learning; in the
+	// `code tunnel` flow the CLI captures that port from the AH's
+	// readiness line and passes it back as `--agent-host-bridge-port` on
+	// the renderer-serving servers. The manager-spawned AH itself never
+	// serves renderer connections directly, so it doesn't need a bridge.
+	const bridgePort = args['agent-host-bridge-port'];
+	const bridgePath = args['agent-host-bridge-path'];
 	const bridgeHost = args['agent-host-bridge-host'] ?? args.host ?? 'localhost';
-	const bridgeToken = args['agent-host-bridge-connection-token']
-		?? (spawnAgentHost && connectionToken.type === ServerConnectionTokenType.Mandatory ? connectionToken.value : undefined);
+	const bridgeToken = args['agent-host-bridge-connection-token'];
 	if (bridgePort || bridgePath) {
 		const agentHostBridge = disposables.add(new AgentHostChannel<RemoteAgentConnectionContext>(
 			socketServer,
@@ -292,7 +296,7 @@ export async function setupServerServices(connectionToken: ServerConnectionToken
 		socketServer.registerChannel(AgentHostIpcChannels.RemoteProxy, agentHostBridge);
 		logService.info(`[AgentHostChannel] Registered IPC channel '${AgentHostIpcChannels.RemoteProxy}' (upstream: ${bridgePath ?? `${bridgeHost}:${bridgePort}`})`);
 	} else {
-		logService.info(`[AgentHostChannel] Not registering: no --agent-host-port / --agent-host-bridge-port set.`);
+		logService.info(`[AgentHostChannel] Not registering: no --agent-host-bridge-port / --agent-host-bridge-path set.`);
 	}
 
 	services.set(IAllowedMcpServersService, new SyncDescriptor(AllowedMcpServersService));

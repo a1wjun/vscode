@@ -140,6 +140,7 @@ suite('Agent Host Lockfile (local)', () => {
 			assert.deepStrictEqual(result, {
 				kind: 'compatible',
 				pid: process.pid,
+				host: '127.0.0.1',
 				port: 8080,
 				connectionToken: 'mytoken',
 			});
@@ -151,26 +152,25 @@ suite('Agent Host Lockfile (local)', () => {
 			assert.deepStrictEqual(result, {
 				kind: 'compatible',
 				pid: process.pid,
+				host: '127.0.0.1',
 				port: 8080,
 				connectionToken: undefined,
 			});
 		});
 
-		test('returns incompatible for protocol version mismatch', async () => {
-			// `serverServices.ts` treats the `incompatible` result as a
-			// fatal startup error rather than falling back to spawning a
-			// duplicate agent host. The fields recorded here (pid, port,
-			// protocolVersion, expectedProtocolVersion) all appear in the
-			// surfaced error message, so any rename here must be kept in
-			// sync with the message in `serverServices.ts`.
-			writeState(process.pid, 8080, 'tok', { protocolVersion: '0.0.1-test-mismatch' });
+		test('treats newer protocol version as compatible', async () => {
+			// The agent host server is downloaded on demand and may speak a
+			// newer protocol than this consumer was built with. Reuse is
+			// the right default; the renderer↔AH handshake surfaces any
+			// genuine incompatibility.
+			writeState(process.pid, 8080, 'tok', { protocolVersion: '99.0.0' });
 			const result = await readActiveAgentHostFromLockfile(lockfilePath, logService);
 			assert.deepStrictEqual(result, {
-				kind: 'incompatible',
+				kind: 'compatible',
 				pid: process.pid,
+				host: '127.0.0.1',
 				port: 8080,
-				protocolVersion: '0.0.1-test-mismatch',
-				expectedProtocolVersion: PROTOCOL_VERSION,
+				connectionToken: 'tok',
 			});
 		});
 	});

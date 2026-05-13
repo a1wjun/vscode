@@ -19,6 +19,12 @@ export interface IRemoteAgentHostState {
 	readonly schemaVersion: typeof remoteAgentHostStateSchemaVersion;
 	readonly pid: number;
 	readonly port: number;
+	/**
+	 * Host the supervisor's TCP listener was bound to (e.g. `127.0.0.1`,
+	 * `0.0.0.0`). Optional so older lockfiles still parse; consumers fall
+	 * back to loopback when absent.
+	 */
+	readonly host?: string;
 	readonly connectionToken?: string | null;
 	readonly protocolVersion: string;
 	readonly quality?: string;
@@ -28,6 +34,7 @@ export interface IRemoteAgentHostState {
 export function createRemoteAgentHostState(options: {
 	readonly pid: number;
 	readonly port: number;
+	readonly host?: string;
 	readonly connectionToken: string | undefined;
 	readonly quality?: string;
 	readonly tunnelName?: string;
@@ -36,6 +43,7 @@ export function createRemoteAgentHostState(options: {
 		schemaVersion: remoteAgentHostStateSchemaVersion,
 		pid: options.pid,
 		port: options.port,
+		host: options.host,
 		connectionToken: options.connectionToken ?? null,
 		protocolVersion: PROTOCOL_VERSION,
 		quality: options.quality,
@@ -58,6 +66,9 @@ export function parseRemoteAgentHostState(raw: unknown): IRemoteAgentHostState |
 	if (typeof obj.port !== 'number' || !Number.isSafeInteger(obj.port) || obj.port <= 0 || obj.port > 65535) {
 		return undefined;
 	}
+	if (obj.host !== undefined && typeof obj.host !== 'string') {
+		return undefined;
+	}
 	if (obj.connectionToken !== undefined && obj.connectionToken !== null && typeof obj.connectionToken !== 'string') {
 		return undefined;
 	}
@@ -75,13 +86,10 @@ export function parseRemoteAgentHostState(raw: unknown): IRemoteAgentHostState |
 		schemaVersion: remoteAgentHostStateSchemaVersion,
 		pid: obj.pid,
 		port: obj.port,
+		host: obj.host as string | undefined,
 		connectionToken: (obj.connectionToken as string | null | undefined) ?? null,
 		protocolVersion: obj.protocolVersion,
 		quality: obj.quality,
 		tunnelName: obj.tunnelName,
 	};
-}
-
-export function isRemoteAgentHostStateCompatible(state: IRemoteAgentHostState, protocolVersion = PROTOCOL_VERSION): boolean {
-	return state.protocolVersion === protocolVersion;
 }

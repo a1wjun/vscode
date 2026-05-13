@@ -654,6 +654,7 @@ impl AgentHostSidecar {
 		log: log::Logger,
 		manager: Arc<AgentHostManager>,
 		addr: SocketAddr,
+		host_label: Option<String>,
 		loopback_auth: LoopbackAuth,
 		tunnel_name: Option<String>,
 		lockfile_path: PathBuf,
@@ -667,8 +668,15 @@ impl AgentHostSidecar {
 			.map_err(CodeError::CouldNotListenOnInterface)?;
 
 		let pid = std::process::id();
+		// Prefer the caller-supplied host label so we record what the user
+		// asked for (e.g. `localhost`) instead of the resolved IP. That
+		// lets the foreground command compare `--host` invocations
+		// character-equal without spuriously flagging hostname-vs-IP
+		// equivalents as a config conflict.
+		let host = host_label.unwrap_or_else(|| bound_addr.ip().to_string());
 		let metadata = build_metadata(
 			pid,
+			host,
 			bound_addr.port(),
 			public_token.clone(),
 			tunnel_name.as_deref(),
@@ -778,11 +786,13 @@ impl Drop for AgentHostSidecar {
 
 fn build_metadata(
 	pid: u32,
+	host: String,
 	port: u16,
 	connection_token: Option<String>,
 	tunnel_name: Option<&str>,
 ) -> AgentHostMetadata {
 	let mut metadata = AgentHostMetadata::new(pid, port);
+	metadata.host = Some(host);
 	metadata.connection_token = connection_token;
 	metadata.quality = VSCODE_CLI_QUALITY.map(str::to_string);
 	metadata.tunnel_name = tunnel_name.map(str::to_string);
@@ -838,40 +848,41 @@ async fn handle_request_with_auth(
 // ---- Lockfile-aware reuse ---------------------------------------------------
 
 /// Decision derived from inspecting `agent-host-<quality>.lock`. Used by
-/// CLI entry points (e.g. `code tunnel`) to decide whether they may safely
-/// own the agent host lockfile, must forward to a peer, or must refuse to
-/// start a duplicate.
+/// CLI entry points (e.g. `code tunnel`, `code agent host`) to decide
+/// whether they may safely own the agent host lockfile or should forward
+/// to / share the existing one.
+///
+/// The agent host server is downloaded on demand and may speak a newer
+/// protocol than the CLI itself is built with, so we deliberately do NOT
+/// check the protocol version: any live registered supervisor is always
+/// considered reusable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AgentHostLockfileDecision {
 	/// No live agent host registered; the caller may start its own sidecar.
 	SpawnFresh,
-	/// A live, protocol-compatible agent host owns the lockfile. Tunnel
-	/// callers should forward to `127.0.0.1:port` instead of binding a
-	/// second listener / clobbering the lockfile.
+	/// A live agent host supervisor owns the lockfile. Tunnel callers
+	/// should forward to `127.0.0.1:port` instead of binding a second
+	/// listener / clobbering the lockfile. `host` and `tunnel_name`
+	/// expose the supervisor's effective config so foreground callers
+	/// can detect a configuration conflict and refuse to silently reuse.
 	Reuse {
 		pid: u32,
+		host: Option<String>,
 		port: u16,
 		token: Option<String>,
-	},
-	/// A live agent host owns the lockfile but speaks a different
-	/// protocol. Callers should refuse to start a duplicate and surface a
-	/// clear error to the user.
-	Incompatible {
-		pid: u32,
-		port: u16,
-		protocol: String,
+		tunnel_name: Option<String>,
 	},
 }
 
 /// Inspect the agent host lockfile at `path` and decide whether the caller
-/// should spawn a fresh sidecar, reuse an existing live one, or refuse
-/// because the live one is incompatible. Missing / unreadable / stale
-/// lockfiles all map to [`AgentHostLockfileDecision::SpawnFresh`].
+/// should spawn a fresh sidecar or reuse an existing live one. Missing /
+/// unreadable / stale (dead-PID) lockfiles all map to
+/// [`AgentHostLockfileDecision::SpawnFresh`].
 pub fn classify_agent_host_lockfile(
 	log: &log::Logger,
 	path: &std::path::Path,
 ) -> AgentHostLockfileDecision {
-	use super::agent_host_metadata::{read_agent_host_metadata, AGENT_HOST_PROTOCOL_VERSION};
+	use super::agent_host_metadata::read_agent_host_metadata;
 	use crate::util::machine::process_exists;
 
 	let metadata = match read_agent_host_metadata(path) {
@@ -898,41 +909,40 @@ pub fn classify_agent_host_lockfile(
 		return AgentHostLockfileDecision::SpawnFresh;
 	}
 
-	if metadata.protocol_version != AGENT_HOST_PROTOCOL_VERSION {
-		return AgentHostLockfileDecision::Incompatible {
-			pid: metadata.pid,
-			port: metadata.port,
-			protocol: metadata.protocol_version,
-		};
-	}
-
 	AgentHostLockfileDecision::Reuse {
 		pid: metadata.pid,
+		host: metadata.host,
 		port: metadata.port,
 		token: metadata.connection_token,
+		tunnel_name: metadata.tunnel_name,
 	}
 }
 
 /// Forwards a single tunnel-relayed connection to an existing agent host
-/// listening on `127.0.0.1:upstream_port`. Mirrors the TS-side
+/// listening on `<upstream_host>:<upstream_port>`. Mirrors the TS-side
 /// `AgentHostProxy`: per request, it opens a TCP connection upstream and
 /// injects `?tkn=<token>` into the request URI when the lockfile records a
-/// connection token.
+/// connection token. `upstream_host` should already be a dialable
+/// loopback address (the caller is responsible for mapping wildcard
+/// binds like `0.0.0.0` to the corresponding loopback).
 pub async fn forward_tunnel_connection_to_existing_ah<RW>(
 	log: log::Logger,
 	rw: RW,
+	upstream_host: String,
 	upstream_port: u16,
 	token: Option<String>,
 ) where
 	RW: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
 	let token = Arc::new(token);
+	let upstream_host = Arc::new(upstream_host);
 	let svc_log = log.clone();
 	let svc = service_fn(move |req| {
 		let log = svc_log.clone();
 		let token = token.clone();
+		let host = upstream_host.clone();
 		async move {
-			handle_reuse_request(log, upstream_port, (*token).clone(), req).await
+			handle_reuse_request(log, (*host).clone(), upstream_port, (*token).clone(), req).await
 		}
 	});
 	let io = TokioIo::new(rw);
@@ -946,6 +956,7 @@ pub async fn forward_tunnel_connection_to_existing_ah<RW>(
 
 async fn handle_reuse_request(
 	log: log::Logger,
+	upstream_host: String,
 	upstream_port: u16,
 	token: Option<String>,
 	mut req: Request<Incoming>,
@@ -955,14 +966,18 @@ async fn handle_reuse_request(
 		*req.uri_mut() = new_uri;
 	}
 
-	let upstream = SocketAddr::from(([127, 0, 0, 1], upstream_port));
-	let stream = match tokio::net::TcpStream::connect(upstream).await {
+	// Resolve via `lookup_host` so we tolerate hostnames (`localhost`) and
+	// IPv6 literals (`::1`) in addition to bare IPv4. `TcpStream::connect`
+	// also accepts `(host, port)` directly but doing the lookup explicitly
+	// gives us a clearer error path.
+	let target = format!("{upstream_host}:{upstream_port}");
+	let stream = match tokio::net::TcpStream::connect(&target).await {
 		Ok(s) => s,
 		Err(e) => {
 			warning!(
 				log,
-				"Failed to connect to existing agent host on 127.0.0.1:{}: {}",
-				upstream_port,
+				"Failed to connect to existing agent host on {}: {}",
+				target,
 				e
 			);
 			return Ok(Response::builder()
@@ -1025,9 +1040,16 @@ mod tests {
 
 	#[test]
 	fn metadata_includes_quality_and_no_tunnel() {
-		let metadata = build_metadata(42, 8080, Some("tok".to_string()), None);
+		let metadata = build_metadata(
+			42,
+			"127.0.0.1".to_string(),
+			8080,
+			Some("tok".to_string()),
+			None,
+		);
 
 		assert_eq!(metadata.pid, 42);
+		assert_eq!(metadata.host.as_deref(), Some("127.0.0.1"));
 		assert_eq!(metadata.port, 8080);
 		assert_eq!(metadata.connection_token.as_deref(), Some("tok"));
 		assert_eq!(metadata.protocol_version, AGENT_HOST_PROTOCOL_VERSION);
@@ -1036,8 +1058,9 @@ mod tests {
 
 	#[test]
 	fn metadata_records_tunnel_name() {
-		let metadata = build_metadata(42, 8080, None, Some("my-tunnel"));
+		let metadata = build_metadata(42, "0.0.0.0".to_string(), 8080, None, Some("my-tunnel"));
 
+		assert_eq!(metadata.host.as_deref(), Some("0.0.0.0"));
 		assert_eq!(metadata.tunnel_name.as_deref(), Some("my-tunnel"));
 	}
 
@@ -1051,6 +1074,7 @@ mod tests {
 			log::Logger::test(),
 			manager,
 			SocketAddr::from(([127, 0, 0, 1], 0)),
+			Some("localhost".to_string()),
 			LoopbackAuth::Token("tok".to_string()),
 			Some("my-tunnel".to_string()),
 			lockfile.clone(),
@@ -1060,6 +1084,7 @@ mod tests {
 
 		let metadata = read_agent_host_metadata(&lockfile).unwrap().unwrap();
 		assert_eq!(metadata.pid, std::process::id());
+		assert_eq!(metadata.host.as_deref(), Some("localhost"));
 		assert_eq!(metadata.port, sidecar.bound_addr().port());
 		assert_ne!(metadata.port, 0);
 		assert_eq!(metadata.connection_token.as_deref(), Some("tok"));
@@ -1077,6 +1102,7 @@ mod tests {
 				log::Logger::test(),
 				manager,
 				SocketAddr::from(([127, 0, 0, 1], 0)),
+				None,
 				LoopbackAuth::Disabled,
 				None,
 				lockfile.clone(),
@@ -1099,6 +1125,7 @@ mod tests {
 			log::Logger::test(),
 			manager,
 			SocketAddr::from(([127, 0, 0, 1], 0)),
+			None,
 			LoopbackAuth::Disabled,
 			None,
 			lockfile.clone(),
@@ -1148,6 +1175,7 @@ mod tests {
 		let lockfile = dir.path().join("agent-host.lock");
 		let pid = std::process::id();
 		let mut metadata = AgentHostMetadata::new(pid, 4321);
+		metadata.host = Some("127.0.0.1".to_string());
 		metadata.connection_token = Some("tok".to_string());
 		write_agent_host_metadata(&lockfile, &metadata).unwrap();
 
@@ -1157,29 +1185,37 @@ mod tests {
 			decision,
 			AgentHostLockfileDecision::Reuse {
 				pid,
+				host: Some("127.0.0.1".to_string()),
 				port: 4321,
 				token: Some("tok".to_string()),
+				tunnel_name: None,
 			}
 		);
 	}
 
 	#[test]
-	fn classify_returns_incompatible_for_live_wrong_protocol() {
+	fn classify_returns_reuse_for_live_newer_protocol() {
+		// The agent host server is downloaded on demand and may speak a
+		// newer protocol than the CLI is built with; we must still treat
+		// it as reusable rather than refusing to share it.
 		let dir = tempfile::tempdir().unwrap();
 		let lockfile = dir.path().join("agent-host.lock");
 		let pid = std::process::id();
 		let mut metadata = AgentHostMetadata::new(pid, 4321);
 		metadata.protocol_version = "9.9.9".to_string();
+		metadata.connection_token = Some("tok".to_string());
 		write_agent_host_metadata(&lockfile, &metadata).unwrap();
 
 		let decision = classify_agent_host_lockfile(&log::Logger::test(), &lockfile);
 
 		assert_eq!(
 			decision,
-			AgentHostLockfileDecision::Incompatible {
+			AgentHostLockfileDecision::Reuse {
 				pid,
+				host: None,
 				port: 4321,
-				protocol: "9.9.9".to_string(),
+				token: Some("tok".to_string()),
+				tunnel_name: None,
 			}
 		);
 	}

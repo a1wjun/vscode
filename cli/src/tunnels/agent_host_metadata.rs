@@ -24,6 +24,13 @@ pub struct AgentHostMetadata {
 	pub schema_version: u32,
 	pub pid: u32,
 	pub port: u16,
+	/// Host the supervisor's TCP listener was bound to (e.g. `127.0.0.1`,
+	/// `0.0.0.0`). Optional so older lockfiles still parse; consumers
+	/// fall back to loopback when absent. Used by the foreground
+	/// `code agent host` command to detect when a caller's requested
+	/// `--host` differs from what's already running.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub host: Option<String>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub connection_token: Option<String>,
 	pub protocol_version: String,
@@ -39,6 +46,7 @@ impl AgentHostMetadata {
 			schema_version: AGENT_HOST_METADATA_SCHEMA_VERSION,
 			pid,
 			port,
+			host: None,
 			connection_token: None,
 			protocol_version: AGENT_HOST_PROTOCOL_VERSION.to_string(),
 			quality: None,
@@ -107,6 +115,7 @@ mod tests {
 	#[test]
 	fn serializes_with_camel_case_fields() {
 		let mut metadata = AgentHostMetadata::new(1234, 8080);
+		metadata.host = Some("0.0.0.0".to_string());
 		metadata.connection_token = Some("tok".to_string());
 		metadata.quality = Some("insider".to_string());
 		metadata.tunnel_name = Some("my-tunnel".to_string());
@@ -115,6 +124,7 @@ mod tests {
 		assert_eq!(value["schemaVersion"], 1);
 		assert_eq!(value["pid"], 1234);
 		assert_eq!(value["port"], 8080);
+		assert_eq!(value["host"], "0.0.0.0");
 		assert_eq!(value["connectionToken"], "tok");
 		assert_eq!(value["protocolVersion"], "0.1.0");
 		assert_eq!(value["quality"], "insider");
@@ -126,6 +136,7 @@ mod tests {
 		let metadata = AgentHostMetadata::new(1234, 8080);
 
 		let value = serde_json::to_value(&metadata).unwrap();
+		assert!(value.get("host").is_none());
 		assert!(value.get("connectionToken").is_none());
 		assert!(value.get("quality").is_none());
 		assert!(value.get("tunnelName").is_none());

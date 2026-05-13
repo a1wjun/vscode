@@ -7,9 +7,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { join } from '../../../base/common/path.js';
 import { ILogService } from '../../log/common/log.js';
-import { IRemoteAgentHostState, isRemoteAgentHostStateCompatible, parseRemoteAgentHostState } from '../common/remoteAgentHostMetadata.js';
-import { PROTOCOL_VERSION } from '../common/state/protocol/version/registry.js';
-import { validateShellToken } from './sshRemoteAgentHostHelpers.js';
+import { IRemoteAgentHostState, parseRemoteAgentHostState } from '../common/remoteAgentHostMetadata.js';
+import { dialAgentHostHost, validateShellToken } from './sshRemoteAgentHostHelpers.js';
 
 const LOG_PREFIX = '[AgentHostLockfile]';
 
@@ -66,14 +65,17 @@ export async function readLocalAgentHostLockfile(lockfilePath: string, logServic
 export type LocalAgentHostLookupResult =
 	| { readonly kind: 'notFound' }
 	| { readonly kind: 'stale'; readonly pid: number }
-	| { readonly kind: 'compatible'; readonly pid: number; readonly port: number; readonly connectionToken: string | undefined }
-	| { readonly kind: 'incompatible'; readonly pid: number; readonly port: number; readonly protocolVersion: string; readonly expectedProtocolVersion: string };
+	| { readonly kind: 'compatible'; readonly pid: number; readonly host: string; readonly port: number; readonly connectionToken: string | undefined };
 
 /**
- * Read the lockfile and verify the recorded PID is still alive AND the
- * recorded protocol version matches our build. Logs and returns
- * `notFound` on missing/corrupt files, `stale` on dead PIDs,
- * `incompatible` on protocol mismatch, and `compatible` otherwise.
+ * Read the lockfile and verify the recorded PID is still alive. Returns
+ * `notFound` on missing/corrupt files, `stale` on dead PIDs, and
+ * `compatible` for any live process.
+ *
+ * The recorded protocol version is intentionally NOT checked here: the
+ * agent host server is downloaded on demand and may speak a newer
+ * protocol than the consumer was built with. The renderer↔AH handshake
+ * surfaces any genuine incompatibility.
  */
 export async function readActiveAgentHostFromLockfile(lockfilePath: string, logService: ILogService): Promise<LocalAgentHostLookupResult> {
 	const state = await readLocalAgentHostLockfile(lockfilePath, logService);
@@ -86,21 +88,11 @@ export async function readActiveAgentHostFromLockfile(lockfilePath: string, logS
 		return { kind: 'stale', pid: state.pid };
 	}
 
-	if (!isRemoteAgentHostStateCompatible(state)) {
-		logService.info(`${LOG_PREFIX} Found incompatible agent host via ${lockfilePath}: PID ${state.pid}, port ${state.port}, protocol ${state.protocolVersion}`);
-		return {
-			kind: 'incompatible',
-			pid: state.pid,
-			port: state.port,
-			protocolVersion: state.protocolVersion,
-			expectedProtocolVersion: PROTOCOL_VERSION,
-		};
-	}
-
 	logService.info(`${LOG_PREFIX} Found running agent host via ${lockfilePath}: PID ${state.pid}, port ${state.port}`);
 	return {
 		kind: 'compatible',
 		pid: state.pid,
+		host: dialAgentHostHost(state.host),
 		port: state.port,
 		connectionToken: state.connectionToken ?? undefined,
 	};

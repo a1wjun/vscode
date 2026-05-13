@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 use crate::async_pipe::get_socket_rw_stream;
+use crate::commands::agent_host::ensure_supervisor_running;
 use crate::constants::{AGENT_HOST_PORT, CONTROL_PORT, PRODUCT_NAME_LONG};
 use crate::log;
 use crate::msgpack_rpc::{new_msgpack_rpc, start_msgpack_rpc, MsgPackCodec, MsgPackSerializer};
@@ -29,7 +30,6 @@ use crate::util::sync::{new_barrier, Barrier, BarrierOpener};
 use futures::stream::FuturesUnordered;
 use futures::FutureExt;
 use std::collections::HashMap;
-use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::net::TcpStream;
@@ -42,10 +42,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader, DuplexStream};
 use tokio::sync::{mpsc, Mutex};
 
-use super::agent_host::{
-	classify_agent_host_lockfile, forward_tunnel_connection_to_existing_ah, AgentHostConfig,
-	AgentHostLockfileDecision, AgentHostManager, AgentHostSidecar, LoopbackAuth,
-};
+use super::agent_host::forward_tunnel_connection_to_existing_ah;
 use super::challenge::{create_challenge, sign_challenge, verify_challenge};
 use super::code_server::{
 	download_cli_into_cache, AnyCodeServer, CodeServerArgs, ServerBuilder, ServerParamsRaw,
@@ -149,30 +146,28 @@ pub struct ServerTermination {
 
 /// How `serve()` deals with the per-machine agent host:
 ///
-///   * `Owned`    - this control server allocated its own [`AgentHostSidecar`]
-///                  and is responsible for shutting it down (which removes
-///                  the lockfile).
-///   * `Reuse`    - another agent host already owns the lockfile; tunnel
-///                  direct connections are forwarded to it and we never
-///                  touch the lockfile.
+///   * `Active`   - there is a live agent host we can dial. Either this
+///                  control server spawned one (and holds a `sidecar`
+///                  handle for explicit terminate), or another peer
+///                  already owns the lockfile. Both cases collapse to
+///                  the same data: a TCP port and an optional connection
+///                  token. Tunnel-direct connections always forward to
+///                  that endpoint, uniformly.
 ///   * `Disabled` - an incompatible agent host owns the lockfile; tunnel
 ///                  direct connections are dropped to surface a clear
 ///                  failure rather than silently spawning a duplicate.
-enum AgentHostHandle {
-	Owned(Arc<AgentHostSidecar>),
-	Reuse {
-		port: u16,
-		token: Option<String>,
-	},
-	Disabled,
-}
-
-impl AgentHostHandle {
-	async fn shutdown(&self) {
-		if let AgentHostHandle::Owned(sidecar) = self {
-			sidecar.shutdown().await;
-		}
-	}
+/// Active agent host endpoint discovered or spawned by `serve()`. Used to
+/// (a) thread `--agent-host-bridge-*` into spawned VS Code servers and
+/// (b) forward dev-tunnel direct connections to the right loopback port.
+///
+/// We do NOT keep a sidecar handle here: the agent host backend is
+/// detached and is expected to outlive this CLI. Ordinary shutdown
+/// (Ctrl-C / respawn) just drops this struct; only `code agent kill` /
+/// `code agent host --replace` ever tear the backend down.
+struct ActiveAgentHost {
+	host: String,
+	port: u16,
+	token: Option<String>,
 }
 
 async fn preload_extensions(
@@ -217,132 +212,34 @@ pub async fn serve(
 	let (tx, mut rx) = mpsc::channel::<ServerSignal>(4);
 	let (exit_barrier, signal_exit) = new_barrier();
 
-	// Decide how this control server interacts with the canonical agent
-	// host lockfile. We do NOT unconditionally bind a sidecar here: an
-	// existing CLI (`code agent host`, an earlier `code tunnel`) may
-	// already own the lockfile, and clobbering it would produce two agent
-	// host processes for the same machine.
-	//
-	//   * SpawnFresh   - no live agent host on this machine: bind a sidecar
-	//                    just like before, write the lockfile, run the
-	//                    update loop, and serve tunnel connections through
-	//                    it.
-	//   * Reuse        - a live, protocol-compatible agent host is already
-	//                    registered: forward tunnel direct connections to
-	//                    127.0.0.1:<port> with the recorded connection
-	//                    token injected, and leave the lockfile alone.
-	//   * Incompatible - a live agent host with a different protocol owns
-	//                    the lockfile: refuse to start a duplicate. Tunnel
-	//                    connections are dropped so the dev tunnel layer
-	//                    surfaces a clear "no agent host" error rather
-	//                    than silently spawning a second host.
-	let lockfile_path = launcher_paths.agent_host_lockfile();
-	let agent_host_handle =
-		match classify_agent_host_lockfile(log, &lockfile_path) {
-			AgentHostLockfileDecision::SpawnFresh => {
-				let agent_host_manager = AgentHostManager::new(
-					log.clone(),
-					platform,
-					launcher_paths.server_cache.clone(),
-					Arc::new(ReqwestSimpleHttp::new()),
-					AgentHostConfig {
-						server_data_dir: code_server_args.server_data_dir.clone(),
-						without_connection_token: true,
-						connection_token: None,
-						connection_token_file: None,
-					},
-				);
-				// Mint a fresh per-launch token for the loopback TCP listener.
-				// Tunnel-direct connections bypass token enforcement (the dev
-				// tunnel relay handles auth on its own), but the local accept
-				// loop is reachable by any process on the host, so it must
-				// require a connection token. The token is written into the
-				// lockfile so other same-machine callers (SSH, the VS Code
-				// server proxy) pick it up automatically.
-				let local_listener_token = uuid::Uuid::new_v4().to_string();
-				let sidecar = AgentHostSidecar::bind_tcp(
-					log.clone(),
-					agent_host_manager.clone(),
-					SocketAddr::from(([127, 0, 0, 1], 0)),
-					LoopbackAuth::Token(local_listener_token),
-					Some(tunnel.name.clone()),
-					lockfile_path,
-				)
-				.await?;
+	// Make sure an agent host supervisor is running on this machine before
+	// we start advertising the `agent-host` port over the tunnel. The
+	// supervisor is the only process that binds the user-facing TCP
+	// listener and owns the canonical lockfile; we never spawn an
+	// in-process sidecar here. If one is already live we reuse it; if
+	// not, we daemonize a fresh supervisor and consume the resulting
+	// lockfile.
+	let active_agent_host = ensure_supervisor_running(launcher_paths, log).await?;
+	let active_agent_host = ActiveAgentHost {
+		host: active_agent_host.dial_host().to_string(),
+		port: active_agent_host.port,
+		token: active_agent_host.token,
+	};
 
-				// Run the local TCP accept loop so other same-machine callers
-				// can reach the agent host through the lockfile-recorded port.
-				// The loop exits when `shutdown_rx` fires.
-				{
-					let sidecar_for_serve = sidecar.clone();
-					let serve_log = log.clone();
-					let serve_shutdown = shutdown_rx.clone();
-					tokio::spawn(async move {
-						if let Err(e) = sidecar_for_serve.serve(serve_shutdown).await {
-							warning!(
-								serve_log,
-								"Agent host local accept loop ended: {:?}",
-								e
-							);
-						}
-					});
-				}
-
-				// Eagerly resolve the latest version and start background updates
-				if option_env!("VSCODE_CLI_OVERRIDE_SERVER_PATH").is_none() {
-					let mgr = agent_host_manager.clone();
-					let log_for_init = log.clone();
-					tokio::spawn(async move {
-						match mgr.get_latest_release().await {
-							Ok(release) => {
-								if let Err(e) = mgr.ensure_downloaded(&release).await {
-									warning!(
-										log_for_init,
-										"Error downloading latest server: {}",
-										e
-									);
-								}
-							}
-							Err(e) => warning!(
-								log_for_init,
-								"Error resolving latest version: {}",
-								e
-							),
-						}
-					});
-
-					let mgr = agent_host_manager.clone();
-					tokio::spawn(async move {
-						mgr.run_update_loop().await;
-					});
-				}
-
-				AgentHostHandle::Owned(sidecar)
-			}
-			AgentHostLockfileDecision::Reuse { pid, port, token } => {
-				info!(
-					log,
-					"Reusing existing agent host (PID {}) on 127.0.0.1:{}; tunnel will forward to it without spawning a sidecar",
-					pid,
-					port
-				);
-				AgentHostHandle::Reuse { port, token }
-			}
-			AgentHostLockfileDecision::Incompatible {
-				pid,
-				port,
-				protocol,
-			} => {
-				warning!(
-					log,
-					"Existing agent host (PID {}) on 127.0.0.1:{} uses incompatible protocol {}; refusing to start a duplicate. Update the running agent host to converge.",
-					pid,
-					port,
-					protocol
-				);
-				AgentHostHandle::Disabled
-			}
-		};
+	// Thread the active agent-host endpoint into the args used when spawning
+	// VS Code servers for renderer clients. The server uses these to register
+	// its `agentHostProxy` IPC channel so the renderer can reach the agent
+	// host over the existing renderer↔server connection. Note: this does NOT
+	// ask the spawned server to start its own agent host (that path uses
+	// `--agent-host-port` / `--agent-host-path` instead), it only points the
+	// bridge at the active agent host.
+	let code_server_args = {
+		let mut csa = code_server_args.clone();
+		csa.agent_host_bridge_host = Some(active_agent_host.host.clone());
+		csa.agent_host_bridge_port = Some(active_agent_host.port);
+		csa.agent_host_bridge_connection_token = active_agent_host.token.clone();
+		csa
+	};
 
 	if !code_server_args.install_extensions.is_empty() {
 		info!(
@@ -368,7 +265,6 @@ pub async fn serve(
 		tokio::select! {
 			Ok(reason) = shutdown_rx.wait() => {
 				info!(log, "Shutting down: {}", reason);
-				agent_host_handle.shutdown().await;
 				drop(signal_exit);
 				return Ok(ServerTermination {
 					next: match reason {
@@ -380,7 +276,6 @@ pub async fn serve(
 			},
 			c = rx.recv() => {
 				if let Some(ServerSignal::Respawn) = c {
-					agent_host_handle.shutdown().await;
 					drop(signal_exit);
 					return Ok(ServerTermination {
 						next: Next::Respawn,
@@ -392,35 +287,20 @@ pub async fn serve(
 				forwarding.process(w, &mut tunnel).await;
 			},
 			Some(socket) = agent_host_port.recv() => {
-				match &agent_host_handle {
-					AgentHostHandle::Owned(sidecar) => {
-						let sc = sidecar.clone();
-						tokio::spawn(async move {
-							sc.serve_tunnel_connection(socket.into_rw()).await;
-						});
-					}
-					AgentHostHandle::Reuse { port, token } => {
-						let port = *port;
-						let token = token.clone();
-						let log = log.clone();
-						tokio::spawn(async move {
-							forward_tunnel_connection_to_existing_ah(
-								log,
-								socket.into_rw(),
-								port,
-								token,
-							)
-							.await;
-						});
-					}
-					AgentHostHandle::Disabled => {
-						debug!(
-							log,
-							"Dropping tunnel agent-host connection: incompatible agent host owns the lockfile"
-						);
-						drop(socket);
-					}
-				}
+				let host = active_agent_host.host.clone();
+				let port = active_agent_host.port;
+				let token = active_agent_host.token.clone();
+				let log = log.clone();
+				tokio::spawn(async move {
+					forward_tunnel_connection_to_existing_ah(
+						log,
+						socket.into_rw(),
+						host,
+						port,
+						token,
+					)
+					.await;
+				});
 			},
 			l = port.recv() => {
 				let socket = match l {

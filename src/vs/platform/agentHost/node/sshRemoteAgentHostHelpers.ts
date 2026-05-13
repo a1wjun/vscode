@@ -4,8 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { ILogService } from '../../log/common/log.js';
-import { createRemoteAgentHostState, isRemoteAgentHostStateCompatible, parseRemoteAgentHostState } from '../common/remoteAgentHostMetadata.js';
-import { PROTOCOL_VERSION } from '../common/state/protocol/version/registry.js';
+import { createRemoteAgentHostState, parseRemoteAgentHostState } from '../common/remoteAgentHostMetadata.js';
 
 const LOG_PREFIX = '[SSHRemoteAgentHost]';
 
@@ -101,8 +100,7 @@ export interface ISshExec {
 
 export type FindRunningAgentHostResult =
 	| { readonly kind: 'notFound' }
-	| { readonly kind: 'compatible'; readonly port: number; readonly connectionToken: string | undefined }
-	| { readonly kind: 'incompatible'; readonly pid: number; readonly port: number; readonly protocolVersion: string | undefined; readonly expectedProtocolVersion: string };
+	| { readonly kind: 'compatible'; readonly host: string; readonly port: number; readonly connectionToken: string | undefined };
 
 /**
  * Try to find a running agent host on the remote by reading the lockfile and
@@ -141,13 +139,37 @@ export async function findRunningAgentHost(
 		return { kind: 'notFound' };
 	}
 
-	if (!isRemoteAgentHostStateCompatible(state)) {
-		logService.info(`${LOG_PREFIX} Found incompatible agent host via ${stateFile}: PID ${state.pid}, port ${state.port}, protocol ${state.protocolVersion}`);
-		return { kind: 'incompatible', pid: state.pid, port: state.port, protocolVersion: state.protocolVersion, expectedProtocolVersion: PROTOCOL_VERSION };
-	}
-
+	// We deliberately do not gate on `protocolVersion` here: the remote
+	// agent host server is downloaded on demand and may speak a newer
+	// protocol than this desktop was built with. The renderer↔AH
+	// handshake will surface a real incompatibility; for the SSH-side
+	// reuse decision we treat any live process as a candidate, and the
+	// caller (sshRemoteAgentHostService) already falls back to spawning
+	// fresh if the relay fails to connect.
 	logService.info(`${LOG_PREFIX} Found running agent host via ${stateFile}: PID ${state.pid}, port ${state.port}`);
-	return { kind: 'compatible', port: state.port, connectionToken: state.connectionToken ?? undefined };
+	return {
+		kind: 'compatible',
+		host: dialAgentHostHost(state.host),
+		port: state.port,
+		connectionToken: state.connectionToken ?? undefined,
+	};
+}
+
+/**
+ * Map a recorded `host` value from the agent host lockfile to a dialable
+ * loopback address. The supervisor records the literal `--host` value it
+ * was given (e.g. `0.0.0.0`, `::1`, `localhost`); local callers (SSH
+ * relay, tunnel reuse-forward, renderer bridge) want a target they can
+ * actually open a socket to. Wildcards are mapped to their corresponding
+ * loopback; specific hosts pass through unchanged. Missing `host`
+ * (lockfile written by an older CLI) falls back to IPv4 loopback to
+ * preserve the prior behaviour.
+ */
+export function dialAgentHostHost(bound: string | undefined): string {
+	if (!bound || bound === '0.0.0.0' || bound === '::' || bound === '[::]') {
+		return '127.0.0.1';
+	}
+	return bound;
 }
 
 /**

@@ -245,6 +245,17 @@ impl LauncherPaths {
 		))
 	}
 
+	/// Suggested path for the detached `code agent host` supervisor's log
+	/// file. The supervisor severs its inherited stdio after signalling
+	/// readiness, so a file log is the only way to debug post-handoff
+	/// issues (download progress, AH child crashes, update loop errors).
+	pub fn agent_host_log_file(&self) -> PathBuf {
+		self.root.join(format!(
+			"agent-host-{}.log",
+			VSCODE_CLI_QUALITY.unwrap_or("oss")
+		))
+	}
+
 	/// Suggested path for web server storage
 	pub fn web_server_storage(&self) -> PathBuf {
 		self.root.join("serve-web")

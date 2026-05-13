@@ -322,7 +322,7 @@ suite('SSH Remote Agent Host Helpers', () => {
 				['kill -0', { stdout: '', stderr: '', code: 0 }],
 			]));
 			const result = await findRunningAgentHost(exec, logService, dataFolderName, quality);
-			assert.deepStrictEqual(result, { kind: 'compatible', port: 8080, connectionToken: 'mytoken' });
+			assert.deepStrictEqual(result, { kind: 'compatible', host: '127.0.0.1', port: 8080, connectionToken: 'mytoken' });
 		});
 
 		test('returns undefined connectionToken when state has null token', async () => {
@@ -332,18 +332,45 @@ suite('SSH Remote Agent Host Helpers', () => {
 				['kill -0', { stdout: '', stderr: '', code: 0 }],
 			]));
 			const result = await findRunningAgentHost(exec, logService, dataFolderName, quality);
-			assert.deepStrictEqual(result, { kind: 'compatible', port: 8080, connectionToken: undefined });
+			assert.deepStrictEqual(result, { kind: 'compatible', host: '127.0.0.1', port: 8080, connectionToken: undefined });
 		});
 
-		test('returns incompatible for protocol version mismatch', async () => {
+		test('treats newer protocol version as compatible (the AH may speak a newer version than this build)', async () => {
+			// The agent host server is downloaded on demand by the remote
+			// CLI and may speak a newer protocol than this desktop. Reuse
+			// is the right default; the renderer↔AH handshake will surface
+			// any genuine incompatibility, and the SSH service falls back
+			// to spawning fresh if the relay refuses to connect.
 			const state = JSON.parse(stateJson(1234, 8080, null));
-			state.protocolVersion = '0.0.1';
+			state.protocolVersion = '99.0.0';
 			const exec = createMockExec(new Map([
 				['cat', { stdout: JSON.stringify(state), stderr: '', code: 0 }],
 				['kill -0', { stdout: '', stderr: '', code: 0 }],
 			]));
 			const result = await findRunningAgentHost(exec, logService, dataFolderName, quality);
-			assert.deepStrictEqual(result, { kind: 'incompatible', pid: 1234, port: 8080, protocolVersion: '0.0.1', expectedProtocolVersion: PROTOCOL_VERSION });
+			assert.deepStrictEqual(result, { kind: 'compatible', host: '127.0.0.1', port: 8080, connectionToken: undefined });
+		});
+
+		test('maps recorded `0.0.0.0` bind to loopback when dialing', async () => {
+			const state = JSON.parse(stateJson(1234, 8080, null));
+			state.host = '0.0.0.0';
+			const exec = createMockExec(new Map([
+				['cat', { stdout: JSON.stringify(state), stderr: '', code: 0 }],
+				['kill -0', { stdout: '', stderr: '', code: 0 }],
+			]));
+			const result = await findRunningAgentHost(exec, logService, dataFolderName, quality);
+			assert.deepStrictEqual(result, { kind: 'compatible', host: '127.0.0.1', port: 8080, connectionToken: undefined });
+		});
+
+		test('preserves specific recorded host (e.g. IPv6 loopback)', async () => {
+			const state = JSON.parse(stateJson(1234, 8080, null));
+			state.host = '::1';
+			const exec = createMockExec(new Map([
+				['cat', { stdout: JSON.stringify(state), stderr: '', code: 0 }],
+				['kill -0', { stdout: '', stderr: '', code: 0 }],
+			]));
+			const result = await findRunningAgentHost(exec, logService, dataFolderName, quality);
+			assert.deepStrictEqual(result, { kind: 'compatible', host: '::1', port: 8080, connectionToken: undefined });
 		});
 
 		test('reads from the per-quality launcher lockfile path', async () => {

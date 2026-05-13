@@ -538,6 +538,7 @@ export class SSHRemoteAgentHostMainService extends Disposable implements ISSHRem
 			// 4. Check for an already-running agent host on the remote.
 			//    This prevents accumulating orphaned processes when the SSH
 			//    connection drops and we reconnect.
+			let remoteHost: string = '127.0.0.1';
 			let remotePort: number | undefined;
 			let connectionToken: string | undefined;
 			let agentStream: SSHChannel | undefined;
@@ -546,10 +547,9 @@ export class SSHRemoteAgentHostMainService extends Disposable implements ISSHRem
 			const exec = bindSshExec(sshClient);
 			const existingAH = await findRunningAgentHost(exec, this._logService, this._dataFolderName, this._quality);
 			if (existingAH.kind === 'compatible') {
+				remoteHost = existingAH.host;
 				remotePort = existingAH.port;
 				connectionToken = existingAH.connectionToken;
-			} else if (existingAH.kind === 'incompatible') {
-				throw new Error(localize('sshAgentHostIncompatible', "The remote agent host is running with incompatible protocol metadata (PID {0}, port {1}). Update VS Code on the remote machine, or stop that process, then try again.", existingAH.pid, existingAH.port));
 			}
 
 			if (remotePort === undefined) {
@@ -571,7 +571,7 @@ export class SSHRemoteAgentHostMainService extends Disposable implements ISSHRem
 			let relay: { send: (data: string) => void; close: () => void };
 			try {
 				relay = await this._createWebSocketRelay(
-					sshClient, '127.0.0.1', remotePort, connectionToken,
+					sshClient, remoteHost, remotePort, connectionToken,
 					(data: string) => this._onDidRelayMessage.fire({ connectionId, data }),
 					() => { conn?.dispose(); },
 				);
@@ -581,11 +581,12 @@ export class SSHRemoteAgentHostMainService extends Disposable implements ISSHRem
 				}
 				// The reused agent host is not connectable — kill it and start fresh
 				const relayErrorMessage = relayErr instanceof Error ? relayErr.message : String(relayErr);
-				this._logService.warn(`${LOG_PREFIX} Failed to connect to reused agent host on port ${remotePort}: ${relayErrorMessage}. Starting fresh`);
+				this._logService.warn(`${LOG_PREFIX} Failed to connect to reused agent host on ${remoteHost}:${remotePort}: ${relayErrorMessage}. Starting fresh`);
 				await cleanupRemoteAgentHost(exec, this._logService, this._dataFolderName, this._quality);
 
 				reportProgress(localize('sshProgressStartingAgent', "Starting remote agent host..."));
 				const result = await this._startRemoteAgentHost(sshClient, this._quality, config.remoteAgentHostCommand);
+				remoteHost = '127.0.0.1';
 				remotePort = result.port;
 				connectionToken = result.connectionToken;
 				agentStream = result.stream;
@@ -593,7 +594,7 @@ export class SSHRemoteAgentHostMainService extends Disposable implements ISSHRem
 
 				reportProgress(localize('sshProgressForwarding', "Connecting to remote agent host..."));
 				relay = await this._createWebSocketRelay(
-					sshClient, '127.0.0.1', remotePort, connectionToken,
+					sshClient, remoteHost, remotePort, connectionToken,
 					(data: string) => this._onDidRelayMessage.fire({ connectionId, data }),
 					() => { conn?.dispose(); },
 				);
