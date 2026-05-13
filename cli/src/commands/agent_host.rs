@@ -47,7 +47,7 @@ const SUPERVISOR_ENV: &str = "VSCODE_AGENT_HOST_SUPERVISOR";
 const SUPERVISOR_READY_LINE: &str = "__VSCODE_AGENT_HOST_READY__";
 /// Cap on how long the foreground waits for the supervisor to become
 /// ready before giving up and surfacing a failure.
-const SUPERVISOR_READY_TIMEOUT: Duration = Duration::from_mins(5);
+const SUPERVISOR_READY_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 /// Runs the `code agent host` command. Acts in one of two modes:
 ///

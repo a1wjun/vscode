@@ -144,18 +144,6 @@ pub struct ServerTermination {
 	pub tunnel: ActiveTunnel,
 }
 
-/// How `serve()` deals with the per-machine agent host:
-///
-///   * `Active`   - there is a live agent host we can dial. Either this
-///                  control server spawned one (and holds a `sidecar`
-///                  handle for explicit terminate), or another peer
-///                  already owns the lockfile. Both cases collapse to
-///                  the same data: a TCP port and an optional connection
-///                  token. Tunnel-direct connections always forward to
-///                  that endpoint, uniformly.
-///   * `Disabled` - an incompatible agent host owns the lockfile; tunnel
-///                  direct connections are dropped to surface a clear
-///                  failure rather than silently spawning a duplicate.
 /// Active agent host endpoint discovered or spawned by `serve()`. Used to
 /// (a) thread `--agent-host-bridge-*` into spawned VS Code servers and
 /// (b) forward dev-tunnel direct connections to the right loopback port.
