@@ -67,10 +67,12 @@ export class EditorRemoteAgentHostServiceClient extends Disposable implements IA
 
 		if (!enabled) {
 			this._logService.info(`${LOG_PREFIX} Disabled via "${AgentHostEnabledSettingId}". Not connecting.`);
+			this.setAuthenticationPending(false);
 			return;
 		}
 		if (!connection) {
 			this._logService.warn(`${LOG_PREFIX} No remote agent connection available. Not connecting.`);
+			this.setAuthenticationPending(false);
 			return;
 		}
 

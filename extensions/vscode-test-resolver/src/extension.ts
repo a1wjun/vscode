@@ -159,6 +159,21 @@ export function activate(context: vscode.ExtensionContext) {
 			commandArgs.push('--connection-token', connectionToken);
 
 			const agentHostPort = getConfiguration('agentHostPort');
+			const agentHostBridgePort = getConfiguration('agentHostBridgePort');
+			if (
+				typeof agentHostPort === 'number' && agentHostPort > 0 &&
+				typeof agentHostBridgePort === 'number' && agentHostBridgePort > 0
+			) {
+				// `agentHostPort` spawns an agent host inside the server;
+				// `agentHostBridgePort` bridges the renderer to an
+				// externally-running one. They contradict each other —
+				// reject up front so the user notices instead of getting
+				// two agent hosts and silently confusing failure modes.
+				throw new Error(
+					`testResolver: 'agentHostPort' and 'agentHostBridgePort' are mutually exclusive. ` +
+					`Configure at most one (got port=${agentHostPort}, bridge=${agentHostBridgePort}).`
+				);
+			}
 			if (typeof agentHostPort === 'number' && agentHostPort > 0) {
 				commandArgs.push('--agent-host-port', String(agentHostPort));
 			}
@@ -166,7 +181,6 @@ export function activate(context: vscode.ExtensionContext) {
 			// Bridge to an externally-running agent host (e.g. one started
 			// by `code agent host`). Mutually exclusive with `agentHostPort`
 			// — that one spawns its own agent host.
-			const agentHostBridgePort = getConfiguration('agentHostBridgePort');
 			if (typeof agentHostBridgePort === 'number' && agentHostBridgePort > 0) {
 				commandArgs.push('--agent-host-bridge-port', String(agentHostBridgePort));
 			}

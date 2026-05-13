@@ -256,6 +256,16 @@ export class AgentHostChannel<TContext> extends Disposable implements IServerCha
 		if (!conn) {
 			conn = this._upstreamFactory(this._endpoint);
 			this._perCtx.set(ctx, conn);
+			// If the upstream closes on its own (e.g. agent host restart or
+			// connection drop), evict it from the cache so the next
+			// `connect()` call creates a fresh upstream rather than
+			// returning the stuck-closed one.
+			const sub = conn.onClose(() => {
+				sub.dispose();
+				if (this._perCtx.get(ctx) === conn) {
+					this._perCtx.delete(ctx);
+				}
+			});
 		}
 		return conn;
 	}

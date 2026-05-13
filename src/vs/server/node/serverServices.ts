@@ -270,17 +270,25 @@ export async function setupServerServices(connectionToken: ServerConnectionToken
 		disposables.add(instantiationService.createInstance(ServerAgentHostManager, agentHostStarter));
 	}
 
-	// The bridge requires an explicit upstream — we do NOT fall back to
-	// the spawn port. When `--agent-host-port=0` is used the OS picks a
-	// port at runtime that this server has no way of learning; in the
-	// `code tunnel` flow the CLI captures that port from the AH's
-	// readiness line and passes it back as `--agent-host-bridge-port` on
-	// the renderer-serving servers. The manager-spawned AH itself never
-	// serves renderer connections directly, so it doesn't need a bridge.
-	const bridgePort = args['agent-host-bridge-port'];
-	const bridgePath = args['agent-host-bridge-path'];
+	// The bridge upstream defaults to the agent host this server just
+	// spawned, but ONLY when that endpoint is dialable at configuration
+	// time — i.e. an explicit non-zero port or a socket path. When
+	// `--agent-host-port=0` is used the OS picks a port at runtime that
+	// this server has no way of learning, so we refuse to register a
+	// bridge against a placeholder `0`; in that case the caller (the CLI
+	// `code tunnel` flow) is expected to capture the bound port from the
+	// AH's readiness line and pass it back as `--agent-host-bridge-port`
+	// on the renderer-serving servers. Explicit `--agent-host-bridge-*`
+	// always wins over the spawn fallback.
+	const spawnPortNumber = spawnPort ? parseInt(spawnPort, 10) : NaN;
+	const hasUsableSpawnPort = Number.isFinite(spawnPortNumber) && spawnPortNumber > 0;
+	const bridgePort = args['agent-host-bridge-port'] ?? (hasUsableSpawnPort ? spawnPort : undefined);
+	const bridgePath = args['agent-host-bridge-path'] ?? spawnPath;
 	const bridgeHost = args['agent-host-bridge-host'] ?? args.host ?? 'localhost';
-	const bridgeToken = args['agent-host-bridge-connection-token'];
+	const bridgeToken = args['agent-host-bridge-connection-token']
+		?? ((bridgePort || bridgePath) && spawnAgentHost && connectionToken.type === ServerConnectionTokenType.Mandatory
+			? connectionToken.value
+			: undefined);
 	if (bridgePort || bridgePath) {
 		const agentHostBridge = disposables.add(new AgentHostChannel<RemoteAgentConnectionContext>(
 			socketServer,
