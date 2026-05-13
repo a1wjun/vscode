@@ -75,8 +75,8 @@ export class TitlebarPart extends Part implements ITitlebarPart {
 
 	//#endregion
 
-	private rootContainer!: HTMLElement;
-	private windowControlsContainer: HTMLElement | undefined;
+	protected rootContainer!: HTMLElement;
+	protected windowControlsContainer: HTMLElement | undefined;
 
 	private leftContent!: HTMLElement;
 	private leftToolbarContainer!: HTMLElement;
@@ -271,7 +271,7 @@ export class TitlebarPart extends Part implements ITitlebarPart {
 		}
 	}
 
-	private onContextMenu(e: MouseEvent): void {
+	protected onContextMenu(e: MouseEvent): void {
 		const event = new StandardMouseEvent(getWindow(this.element), e);
 		this.contextMenuService.showContextMenu({
 			getAnchor: () => event,
