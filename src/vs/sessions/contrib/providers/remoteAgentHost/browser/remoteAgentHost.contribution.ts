@@ -48,7 +48,7 @@ import { IAuthenticationService } from '../../../../../workbench/services/authen
 import { ISessionsProvidersService } from '../../../../services/sessions/browser/sessionsProvidersService.js';
 import { SessionStatus } from '../../../../services/sessions/common/session.js';
 import { remoteAgentHostSessionTypeId } from '../common/remoteAgentHostSessionType.js';
-import { createRemoteAgentHarnessDescriptor, RemoteAgentCustomizationItemProvider, RemoteAgentPluginController } from './remoteAgentHostCustomizationHarness.js';
+import { createRemoteAgentCustomizationItemProvider, createRemoteAgentHarnessDescriptor, RemoteAgentPluginController } from './remoteAgentHostCustomizationHarness.js';
 import { RemoteAgentHostSessionsProvider } from './remoteAgentHostSessionsProvider.js';
 import { SyncedCustomizationBundler } from './syncedCustomizationBundler.js';
 import { ISSHRemoteAgentHostService } from '../../../../../platform/agentHost/common/sshRemoteAgentHost.js';
@@ -628,7 +628,7 @@ export class RemoteAgentHostContribution extends Disposable implements IWorkbenc
 			this._notificationService,
 			this._customizationWorkspaceService,
 		));
-		const itemProvider = agentStore.add(new RemoteAgentCustomizationItemProvider(agent, loggedConnection, sanitized, pluginController, this._fileService, this._logService));
+		const itemProvider = agentStore.add(createRemoteAgentCustomizationItemProvider(agent, loggedConnection, sanitized, pluginController, this._fileService, this._logService));
 		const syncProvider = agentStore.add(new AgentCustomizationSyncProvider(sessionType, this._storageService));
 		const harnessDescriptor = createRemoteAgentHarnessDescriptor(sessionType, displayName, pluginController, itemProvider, syncProvider);
 		agentStore.add(this._customizationHarnessService.registerExternalHarness(harnessDescriptor));
