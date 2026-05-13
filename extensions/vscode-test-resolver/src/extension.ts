@@ -158,6 +158,23 @@ export function activate(context: vscode.ExtensionContext) {
 
 			commandArgs.push('--connection-token', connectionToken);
 
+			const agentHostPort = getConfiguration('agentHostPort');
+			if (typeof agentHostPort === 'number' && agentHostPort > 0) {
+				commandArgs.push('--agent-host-port', String(agentHostPort));
+			}
+
+			// Bridge to an externally-running agent host (e.g. one started
+			// by `code agent host`). Mutually exclusive with `agentHostPort`
+			// — that one spawns its own agent host.
+			const agentHostBridgePort = getConfiguration('agentHostBridgePort');
+			if (typeof agentHostBridgePort === 'number' && agentHostBridgePort > 0) {
+				commandArgs.push('--agent-host-bridge-port', String(agentHostBridgePort));
+			}
+			const agentHostBridgeToken = getConfiguration('agentHostBridgeConnectionToken');
+			if (typeof agentHostBridgeToken === 'string' && agentHostBridgeToken) {
+				commandArgs.push('--agent-host-bridge-connection-token', agentHostBridgeToken);
+			}
+
 			if (!commit) { // dev mode
 				const serverCommand = process.platform === 'win32' ? 'code-server.bat' : 'code-server.sh';
 				const vscodePath = path.resolve(path.join(context.extensionPath, '..', '..'));

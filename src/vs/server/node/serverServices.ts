@@ -79,6 +79,8 @@ import { RemoteUserDataProfilesServiceChannel } from '../../platform/userDataPro
 import { NodePtyHostStarter } from '../../platform/terminal/node/nodePtyHostStarter.js';
 import { NodeAgentHostStarter } from '../../platform/agentHost/node/nodeAgentHostStarter.js';
 import { ServerAgentHostManager } from './serverAgentHostManager.js';
+import { AgentHostChannel } from './agentHostChannel.js';
+import { AgentHostIpcChannels } from '../../platform/agentHost/common/agentService.js';
 import { IServerLifetimeService, ServerLifetimeService } from './serverLifetimeService.js';
 import { CSSDevelopmentService, ICSSDevelopmentService } from '../../platform/cssDev/node/cssDevService.js';
 import { AllowedExtensionsService } from '../../platform/extensionManagement/common/allowedExtensionsService.js';
@@ -239,15 +241,58 @@ export async function setupServerServices(connectionToken: ServerConnectionToken
 	});
 	services.set(IServerLifetimeService, serverLifetimeService);
 
-	if (args['agent-host-port'] || args['agent-host-path']) {
+	// ---- Agent host wiring -------------------------------------------------
+	//
+	// Two independent concerns:
+	//
+	// 1. SPAWN: when `--agent-host-port` / `--agent-host-path` is set, this
+	//    server spawns and owns an agent host child process.
+	// 2. BRIDGE: register the `agentHostProxy` IPC channel so renderers can
+	//    reach the agent host over the remote-agent connection. The upstream
+	//    is either the agent host we just spawned, or one specified via
+	//    `--agent-host-bridge-port` / `--agent-host-bridge-path` (e.g. when
+	//    a CLI sidecar manages the agent host lifecycle).
+	//
+	// The two concerns are deliberately separable so that scenarios with an
+	// externally-managed agent host don't accidentally fork a duplicate.
+
+	const spawnPort = args['agent-host-port'];
+	const spawnPath = args['agent-host-path'];
+	const spawnAgentHost = !!(spawnPort || spawnPath);
+	if (spawnAgentHost) {
 		const agentHostStarter = instantiationService.createInstance(NodeAgentHostStarter);
 		agentHostStarter.setWebSocketConfig({
-			port: args['agent-host-port'],
-			socketPath: args['agent-host-path'],
+			port: spawnPort,
+			socketPath: spawnPath,
 			host: args.host || 'localhost',
 			connectionToken: connectionToken.type === ServerConnectionTokenType.Mandatory ? connectionToken.value : undefined,
 		});
 		disposables.add(instantiationService.createInstance(ServerAgentHostManager, agentHostStarter));
+	}
+
+	// The bridge defaults to the spawned agent host's endpoint when the
+	// `--agent-host-bridge-*` flags are not set.
+	const bridgePort = args['agent-host-bridge-port'] ?? spawnPort;
+	const bridgePath = args['agent-host-bridge-path'] ?? spawnPath;
+	const bridgeHost = args['agent-host-bridge-host'] ?? args.host ?? 'localhost';
+	const bridgeToken = args['agent-host-bridge-connection-token']
+		?? (spawnAgentHost && connectionToken.type === ServerConnectionTokenType.Mandatory ? connectionToken.value : undefined);
+	if (bridgePort || bridgePath) {
+		const agentHostBridge = disposables.add(new AgentHostChannel<RemoteAgentConnectionContext>(
+			socketServer,
+			{
+				host: bridgeHost,
+				port: bridgePort,
+				socketPath: bridgePath,
+				connectionToken: bridgeToken,
+			},
+			logService,
+			serverLifetimeService,
+		));
+		socketServer.registerChannel(AgentHostIpcChannels.RemoteProxy, agentHostBridge);
+		logService.info(`[AgentHostChannel] Registered IPC channel '${AgentHostIpcChannels.RemoteProxy}' (upstream: ${bridgePath ?? `${bridgeHost}:${bridgePort}`})`);
+	} else {
+		logService.info(`[AgentHostChannel] Not registering: no --agent-host-port / --agent-host-bridge-port set.`);
 	}
 
 	services.set(IAllowedMcpServersService, new SyncDescriptor(AllowedMcpServersService));
