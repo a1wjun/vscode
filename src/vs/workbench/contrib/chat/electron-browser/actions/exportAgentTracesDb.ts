@@ -44,7 +44,7 @@ export function registerExportAgentTracesDbAction() {
 			const notificationService = accessor.get(INotificationService);
 			const environmentService = accessor.get(INativeWorkbenchEnvironmentService);
 
-			const sourceUri = URI.file(`${environmentService.userDataPath}/${AgentHostOTelSpansDbSubPath}`);
+			const sourceUri = joinPath(URI.file(environmentService.userDataPath), ...AgentHostOTelSpansDbSubPath.split('/'));
 			if (!(await fileService.exists(sourceUri))) {
 				notificationService.notify({
 					severity: Severity.Info,

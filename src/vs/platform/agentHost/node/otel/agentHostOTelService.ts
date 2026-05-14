@@ -218,6 +218,10 @@ export class AgentHostOTelService extends Disposable implements IAgentHostOTelSe
 							this._logService.warn('[agentHost.otel] failed to insert span', err);
 						}
 					}
+					// Also feed decoded spans to forwarders that consume IDecodeResult
+					// (FileForwarder / ConsoleForwarder). OTLP-style forwarders consume
+					// the raw body via onForward below.
+					this._forwarder?.forwardSpans?.(result);
 				},
 				onForward: this._forwarder ? (body, contentType) => {
 					this._forwarder!.forwardRaw?.(body, contentType);
