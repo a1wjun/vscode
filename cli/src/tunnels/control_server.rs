@@ -144,20 +144,6 @@ pub struct ServerTermination {
 	pub tunnel: ActiveTunnel,
 }
 
-/// Active agent host endpoint discovered or spawned by `serve()`. Used to
-/// (a) thread `--agent-host-bridge-*` into spawned VS Code servers and
-/// (b) forward dev-tunnel direct connections to the right loopback port.
-///
-/// We do NOT keep a sidecar handle here: the agent host backend is
-/// detached and is expected to outlive this CLI. Ordinary shutdown
-/// (Ctrl-C / respawn) just drops this struct; only `code agent kill` /
-/// `code agent host --replace` ever tear the backend down.
-struct ActiveAgentHost {
-	host: String,
-	port: u16,
-	token: Option<String>,
-}
-
 async fn preload_extensions(
 	log: &log::Logger,
 	platform: Platform,
@@ -208,11 +194,6 @@ pub async fn serve(
 	// not, we daemonize a fresh supervisor and consume the resulting
 	// lockfile.
 	let active_agent_host = ensure_supervisor_running(launcher_paths, log).await?;
-	let active_agent_host = ActiveAgentHost {
-		host: active_agent_host.dial_host().to_string(),
-		port: active_agent_host.port,
-		token: active_agent_host.token,
-	};
 
 	// Thread the active agent-host endpoint into the args used when spawning
 	// VS Code servers for renderer clients. The server uses these to register
@@ -223,9 +204,7 @@ pub async fn serve(
 	// bridge at the active agent host.
 	let code_server_args = {
 		let mut csa = code_server_args.clone();
-		csa.agent_host_bridge_host = Some(active_agent_host.host.clone());
-		csa.agent_host_bridge_port = Some(active_agent_host.port);
-		csa.agent_host_bridge_connection_token = active_agent_host.token.clone();
+		active_agent_host.apply_to_bridge(&mut csa);
 		csa
 	};
 
@@ -275,7 +254,7 @@ pub async fn serve(
 				forwarding.process(w, &mut tunnel).await;
 			},
 			Some(socket) = agent_host_port.recv() => {
-				let host = active_agent_host.host.clone();
+				let host = active_agent_host.dial_host().to_string();
 				let port = active_agent_host.port;
 				let token = active_agent_host.token.clone();
 				let log = log.clone();
