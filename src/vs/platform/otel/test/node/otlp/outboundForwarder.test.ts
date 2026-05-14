@@ -17,6 +17,7 @@ import {
 	ConsoleForwarder,
 	FileForwarder,
 	OtlpHttpForwarder,
+	resolveOtlpTracesEndpoint,
 } from '../../../node/otlp/outboundForwarder.js';
 
 class CapturingLogger extends AbstractLogger implements ILogService {
@@ -53,13 +54,13 @@ function makeResult(spans: ICompletedSpanData[]): IDecodeResult {
 
 interface IFakeUpstream {
 	port: number;
-	received: { body: Buffer; contentType: string; auth?: string }[];
+	received: { body: Buffer; contentType: string; auth?: string; path: string }[];
 	dispose(): Promise<void>;
 }
 
 async function startFakeUpstream(behavior: 'ok' | 'fail' = 'ok'): Promise<IFakeUpstream> {
 	const httpModule = await import('http');
-	const received: { body: Buffer; contentType: string; auth?: string }[] = [];
+	const received: { body: Buffer; contentType: string; auth?: string; path: string }[] = [];
 	const server = httpModule.createServer((req, res) => {
 		const chunks: Buffer[] = [];
 		req.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -68,6 +69,7 @@ async function startFakeUpstream(behavior: 'ok' | 'fail' = 'ok'): Promise<IFakeU
 				body: Buffer.concat(chunks),
 				contentType: (req.headers['content-type'] ?? '').toString(),
 				auth: req.headers['authorization']?.toString(),
+				path: req.url ?? '',
 			});
 			if (behavior === 'ok') {
 				res.statusCode = 200;
@@ -125,6 +127,30 @@ suite('platform/otel - outboundForwarder', () => {
 		await fwd.flush();
 		await upstream.dispose();
 		ok(logger.messages.some(m => m.level === 'Warning' && m.msg.includes('500')));
+	});
+
+	test('OtlpHttpForwarder auto-appends /v1/traces to a bare base endpoint', async () => {
+		const upstream = await startFakeUpstream();
+		const logger = store.add(new CapturingLogger());
+		const fwd = store.add(new OtlpHttpForwarder({
+			endpoint: `http://127.0.0.1:${upstream.port}`,
+		}, logger));
+
+		fwd.forwardRaw(Buffer.from('{}'), 'application/json');
+		await fwd.flush();
+		await upstream.dispose();
+
+		strictEqual(upstream.received.length, 1);
+		strictEqual(upstream.received[0].path, '/v1/traces');
+		strictEqual(logger.messages.filter(m => m.level === 'Warning').length, 0);
+	});
+
+	test('resolveOtlpTracesEndpoint appends path on base URL, leaves explicit path alone', () => {
+		strictEqual(resolveOtlpTracesEndpoint('http://localhost:4318'), 'http://localhost:4318/v1/traces');
+		strictEqual(resolveOtlpTracesEndpoint('http://localhost:4318/'), 'http://localhost:4318/v1/traces');
+		strictEqual(resolveOtlpTracesEndpoint('http://localhost:4318/v1/traces'), 'http://localhost:4318/v1/traces');
+		strictEqual(resolveOtlpTracesEndpoint('http://localhost:4318/custom/path'), 'http://localhost:4318/custom/path');
+		strictEqual(resolveOtlpTracesEndpoint('not a url'), 'not a url');
 	});
 
 	test('FileForwarder appends one JSON line per span', async () => {

@@ -36,12 +36,40 @@ export interface IOutboundForwarder {
 // ---------------------------------------------------------------------------
 
 export interface IOtlpHttpForwarderOptions {
-	/** Full URL including the `/v1/traces` path. */
+	/**
+	 * Target URL. May be either:
+	 *
+	 *  - A full signal-specific URL (`http://host:4318/v1/traces`) — used verbatim.
+	 *  - A bare base URL (`http://host:4318` or `http://host:4318/`) — `/v1/traces`
+	 *    is auto-appended, matching the `OTEL_EXPORTER_OTLP_ENDPOINT` convention
+	 *    used by OTLP exporters in the official OpenTelemetry SDKs.
+	 */
 	readonly endpoint: string;
 	/** Extra headers (e.g. authorization). */
 	readonly headers?: Readonly<Record<string, string>>;
 	/** Per-request timeout in ms. Defaults to 10s. */
 	readonly timeoutMs?: number;
+}
+
+/**
+ * Resolve an OTLP/HTTP traces endpoint, matching the path-handling rules used
+ * by the OpenTelemetry SDKs: a bare base URL (no path or just `/`) gets
+ * `/v1/traces` appended; any other path is used verbatim.
+ *
+ * Returns the input string when it cannot be parsed as a URL so the caller's
+ * error path remains in charge.
+ */
+export function resolveOtlpTracesEndpoint(endpoint: string): string {
+	try {
+		const url = new URL(endpoint);
+		if (url.pathname === '' || url.pathname === '/') {
+			url.pathname = '/v1/traces';
+			return url.toString();
+		}
+		return endpoint;
+	} catch {
+		return endpoint;
+	}
 }
 
 /**
@@ -54,12 +82,14 @@ export interface IOtlpHttpForwarderOptions {
 export class OtlpHttpForwarder extends Disposable implements IOutboundForwarder {
 	private readonly _queue = new Queue<void>();
 	private _disposed = false;
+	private readonly _resolvedEndpoint: string;
 
 	constructor(
 		private readonly _options: IOtlpHttpForwarderOptions,
 		private readonly _logService: ILogService,
 	) {
 		super();
+		this._resolvedEndpoint = resolveOtlpTracesEndpoint(_options.endpoint);
 		this._register(toDisposable(() => { this._disposed = true; }));
 	}
 
@@ -78,7 +108,7 @@ export class OtlpHttpForwarder extends Disposable implements IOutboundForwarder 
 
 	private async _sendOnce(body: Buffer, contentType: string): Promise<void> {
 		try {
-			const url = new URL(this._options.endpoint);
+			const url = new URL(this._resolvedEndpoint);
 			const isHttps = url.protocol === 'https:';
 			const mod = isHttps ? await import('https') : await import('http');
 			const headers: Record<string, string> = {
@@ -95,7 +125,7 @@ export class OtlpHttpForwarder extends Disposable implements IOutboundForwarder 
 				timeoutMs: this._options.timeoutMs ?? 10_000,
 			}, body);
 		} catch (err) {
-			this._logService.warn(`[agentHost-otel] forward to ${this._options.endpoint} failed: ${err instanceof Error ? err.message : String(err)}`);
+			this._logService.warn(`[agentHost-otel] forward to ${this._resolvedEndpoint} failed: ${err instanceof Error ? err.message : String(err)}`);
 		}
 	}
 }
