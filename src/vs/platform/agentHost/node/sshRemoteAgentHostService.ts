@@ -40,6 +40,7 @@ import {
 	writeAgentHostState,
 } from './sshRemoteAgentHostHelpers.js';
 import { parseSSHConfigHostEntries, parseSSHGOutput, stripSSHComment } from '../common/sshConfigParsing.js';
+import { removeAnsiEscapeCodes } from '../../../base/common/strings.js';
 
 /** Minimal subset of ssh2.ClientChannel used by this module (duplex stream). */
 interface SSHChannel extends NodeJS.ReadWriteStream {
@@ -279,8 +280,9 @@ function startRemoteAgentHost(
 			}, 60_000);
 
 			const checkForOutput = () => {
+				const clean = removeAnsiEscapeCodes(outputBuf);
 				if (pid === undefined) {
-					const pidMatch = outputBuf.match(/VSCODE_PID=(\d+)/);
+					const pidMatch = clean.match(/VSCODE_PID=(\d+)/);
 					if (pidMatch) {
 						pid = parseInt(pidMatch[1], 10);
 						logService.info(`${LOG_PREFIX} Remote agent host PID: ${pid}`);
@@ -288,7 +290,7 @@ function startRemoteAgentHost(
 				}
 
 				if (!resolved) {
-					const match = outputBuf.match(/ws:\/\/(?:127\.0\.0\.1|localhost):(\d+)(?:\?tkn=([^\s&]+))?/);
+					const match = clean.match(/ws:\/\/(?:127\.0\.0\.1|localhost):(\d+)(?:\?tkn=([^\s&]+))?/);
 					if (match) {
 						resolved = true;
 						clearTimeout(timeout);
@@ -669,7 +671,7 @@ export class SSHRemoteAgentHostMainService extends Disposable implements ISSHRem
 
 			reportProgress(localize('sshProgressCheckingAgent', "Checking for existing agent host..."));
 			const exec = bindSshExec(sshClient);
-			const existingAH = await findRunningAgentHost(exec, this._logService, this._dataFolderName, this._quality);
+			const existingAH = await findRunningAgentHost(exec, this._logService, this._serverDataFolderName, this._quality);
 			if (existingAH.kind === 'compatible') {
 				remoteHost = existingAH.host;
 				remotePort = existingAH.port;
@@ -685,7 +687,7 @@ export class SSHRemoteAgentHostMainService extends Disposable implements ISSHRem
 				agentStream = result.stream;
 
 				// Record state for future reuse
-				await writeAgentHostState(exec, this._logService, this._dataFolderName, this._quality, result.pid, remotePort, connectionToken);
+				await writeAgentHostState(exec, this._logService, this._serverDataFolderName, this._quality, result.pid, remotePort, connectionToken);
 			}
 
 			// 6. Connect to remote agent host via WebSocket relay (no local TCP port)
@@ -706,7 +708,7 @@ export class SSHRemoteAgentHostMainService extends Disposable implements ISSHRem
 				// The reused agent host is not connectable — kill it and start fresh
 				const relayErrorMessage = relayErr instanceof Error ? relayErr.message : String(relayErr);
 				this._logService.warn(`${LOG_PREFIX} Failed to connect to reused agent host on ${remoteHost}:${remotePort}: ${relayErrorMessage}. Starting fresh`);
-				await cleanupRemoteAgentHost(exec, this._logService, this._dataFolderName, this._quality);
+				await cleanupRemoteAgentHost(exec, this._logService, this._serverDataFolderName, this._quality);
 
 				reportProgress(localize('sshProgressStartingAgent', "Starting remote agent host..."));
 				const result = await this._startRemoteAgentHost(sshClient, this._quality, config.remoteAgentHostCommand);
@@ -714,7 +716,7 @@ export class SSHRemoteAgentHostMainService extends Disposable implements ISSHRem
 				remotePort = result.port;
 				connectionToken = result.connectionToken;
 				agentStream = result.stream;
-				await writeAgentHostState(exec, this._logService, this._dataFolderName, this._quality, result.pid, remotePort, connectionToken);
+				await writeAgentHostState(exec, this._logService, this._serverDataFolderName, this._quality, result.pid, remotePort, connectionToken);
 
 				reportProgress(localize('sshProgressForwarding', "Connecting to remote agent host..."));
 				relay = await this._createWebSocketRelay(
@@ -1189,8 +1191,8 @@ export class SSHRemoteAgentHostMainService extends Disposable implements ISSHRem
 		return this._productService.quality || 'oss';
 	}
 
-	private get _dataFolderName(): string {
-		return this._productService.dataFolderName;
+	private get _serverDataFolderName(): string {
+		return this._productService.serverDataFolderName ?? '.vscode-server-oss';
 	}
 
 	protected _startRemoteAgentHost(

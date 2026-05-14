@@ -148,6 +148,9 @@ async fn run_supervisor(mut ctx: CommandContext, mut args: AgentHostArgs) -> Res
 	// caller-supplied level so the parent doesn't see noise on its
 	// terminal.
 	let log_file = ctx.paths.agent_host_log_file();
+	if let Some(parent) = log_file.parent() {
+		let _ = fs::create_dir_all(parent);
+	}
 	match log::FileLogSink::new(log::Level::Trace, &log_file) {
 		Ok(sink) => {
 			ctx.log = ctx.log.tee(sink);
@@ -543,6 +546,7 @@ pub async fn ensure_supervisor_running(
 
 	let exe = std::env::current_exe().map_err(|e| wrap(e, "could not resolve current_exe"))?;
 	let mut cmd = tokio::process::Command::new(&exe);
+	cmd.arg("--cli-data-dir").arg(launcher_paths.root());
 	cmd.arg("agent").arg("host");
 	cmd.env(SUPERVISOR_ENV, "1");
 	cmd.stdin(std::process::Stdio::null());

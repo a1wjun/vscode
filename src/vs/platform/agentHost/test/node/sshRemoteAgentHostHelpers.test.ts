@@ -28,9 +28,9 @@ suite('SSH Remote Agent Host Helpers', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
 	const logService = new NullLogService();
-	const dataFolderName = '.vscode-insiders';
+	const serverDataFolderName = '.vscode-server-insiders';
 	const quality = 'insider';
-	const lockfilePath = '~/.vscode-insiders/cli/agent-host-insider.lock';
+	const lockfilePath = '~/.vscode-server-insiders/cli/agent-host-insider.lock';
 
 	function stateJson(pid: number, port: number, connectionToken: string | undefined | null): string {
 		return JSON.stringify(createRemoteAgentHostState({
@@ -201,26 +201,26 @@ suite('SSH Remote Agent Host Helpers', () => {
 	suite('getAgentHostLockfile', () => {
 		test('returns path under the launcher data dir', () => {
 			assert.strictEqual(
-				getAgentHostLockfile('.vscode-insiders', 'insider'),
-				'~/.vscode-insiders/cli/agent-host-insider.lock'
+				getAgentHostLockfile('.vscode-server-insiders', 'insider'),
+				'~/.vscode-server-insiders/cli/agent-host-insider.lock'
 			);
 		});
 
 		test('keys lockfile name on quality', () => {
 			assert.strictEqual(
-				getAgentHostLockfile('.vscode', 'stable'),
-				'~/.vscode/cli/agent-host-stable.lock'
+				getAgentHostLockfile('.vscode-server-oss', 'stable'),
+				'~/.vscode-server-oss/cli/agent-host-stable.lock'
 			);
 		});
 
-		test('rejects unsafe data folder names', () => {
-			assert.throws(() => getAgentHostLockfile('foo bar', 'stable'), /Unsafe data folder name/);
-			assert.throws(() => getAgentHostLockfile('foo/bar', 'stable'), /Unsafe data folder name/);
-			assert.throws(() => getAgentHostLockfile('$(whoami)', 'stable'), /Unsafe data folder name/);
+		test('rejects unsafe server data folder names', () => {
+			assert.throws(() => getAgentHostLockfile('foo bar', 'stable'), /Unsafe server data folder name/);
+			assert.throws(() => getAgentHostLockfile('foo/bar', 'stable'), /Unsafe server data folder name/);
+			assert.throws(() => getAgentHostLockfile('$(whoami)', 'stable'), /Unsafe server data folder name/);
 		});
 
 		test('rejects unsafe quality strings', () => {
-			assert.throws(() => getAgentHostLockfile('.vscode', 'foo bar'), /Unsafe quality/);
+			assert.throws(() => getAgentHostLockfile('.vscode-server-oss', 'foo bar'), /Unsafe quality/);
 		});
 	});
 
@@ -241,7 +241,7 @@ suite('SSH Remote Agent Host Helpers', () => {
 			const exec = createMockExec(new Map([
 				['cat', { stdout: '', stderr: '', code: 1 }],
 			]));
-			const result = await findRunningAgentHost(exec, logService, dataFolderName, quality);
+			const result = await findRunningAgentHost(exec, logService, serverDataFolderName, quality);
 			assert.deepStrictEqual(result, { kind: 'notFound' });
 		});
 
@@ -249,7 +249,7 @@ suite('SSH Remote Agent Host Helpers', () => {
 			const exec = createMockExec(new Map([
 				['cat', { stdout: '   \n', stderr: '', code: 0 }],
 			]));
-			const result = await findRunningAgentHost(exec, logService, dataFolderName, quality);
+			const result = await findRunningAgentHost(exec, logService, serverDataFolderName, quality);
 			assert.deepStrictEqual(result, { kind: 'notFound' });
 		});
 
@@ -262,7 +262,7 @@ suite('SSH Remote Agent Host Helpers', () => {
 				}
 				return { stdout: '', stderr: '', code: 0 };
 			};
-			const result = await findRunningAgentHost(exec, logService, dataFolderName, quality);
+			const result = await findRunningAgentHost(exec, logService, serverDataFolderName, quality);
 			assert.deepStrictEqual(result, { kind: 'notFound' });
 			assert.ok(commands.some(c => c.includes('rm -f')));
 		});
@@ -276,7 +276,7 @@ suite('SSH Remote Agent Host Helpers', () => {
 				}
 				return { stdout: '', stderr: '', code: 0 };
 			};
-			const result = await findRunningAgentHost(exec, logService, dataFolderName, quality);
+			const result = await findRunningAgentHost(exec, logService, serverDataFolderName, quality);
 			assert.deepStrictEqual(result, { kind: 'notFound' });
 			assert.ok(commands.some(c => c.includes('rm -f')));
 		});
@@ -285,7 +285,7 @@ suite('SSH Remote Agent Host Helpers', () => {
 			const exec = createMockExec(new Map([
 				['cat', { stdout: JSON.stringify({ schemaVersion: 1, pid: '1234', port: 8080, protocolVersion: PROTOCOL_VERSION }), stderr: '', code: 0 }],
 			]));
-			const result = await findRunningAgentHost(exec, logService, dataFolderName, quality);
+			const result = await findRunningAgentHost(exec, logService, serverDataFolderName, quality);
 			assert.deepStrictEqual(result, { kind: 'notFound' });
 		});
 
@@ -293,7 +293,7 @@ suite('SSH Remote Agent Host Helpers', () => {
 			const exec = createMockExec(new Map([
 				['cat', { stdout: JSON.stringify({ schemaVersion: 1, pid: 1234, port: 70000, protocolVersion: PROTOCOL_VERSION }), stderr: '', code: 0 }],
 			]));
-			const result = await findRunningAgentHost(exec, logService, dataFolderName, quality);
+			const result = await findRunningAgentHost(exec, logService, serverDataFolderName, quality);
 			assert.deepStrictEqual(result, { kind: 'notFound' });
 		});
 
@@ -310,7 +310,7 @@ suite('SSH Remote Agent Host Helpers', () => {
 				}
 				return { stdout: '', stderr: '', code: 0 };
 			};
-			const result = await findRunningAgentHost(exec, logService, dataFolderName, quality);
+			const result = await findRunningAgentHost(exec, logService, serverDataFolderName, quality);
 			assert.deepStrictEqual(result, { kind: 'notFound' });
 			assert.ok(commands.some(c => c.includes('rm -f')));
 		});
@@ -321,7 +321,7 @@ suite('SSH Remote Agent Host Helpers', () => {
 				['cat', { stdout: state, stderr: '', code: 0 }],
 				['kill -0', { stdout: '', stderr: '', code: 0 }],
 			]));
-			const result = await findRunningAgentHost(exec, logService, dataFolderName, quality);
+			const result = await findRunningAgentHost(exec, logService, serverDataFolderName, quality);
 			assert.deepStrictEqual(result, { kind: 'compatible', host: '127.0.0.1', port: 8080, connectionToken: 'mytoken' });
 		});
 
@@ -331,7 +331,7 @@ suite('SSH Remote Agent Host Helpers', () => {
 				['cat', { stdout: state, stderr: '', code: 0 }],
 				['kill -0', { stdout: '', stderr: '', code: 0 }],
 			]));
-			const result = await findRunningAgentHost(exec, logService, dataFolderName, quality);
+			const result = await findRunningAgentHost(exec, logService, serverDataFolderName, quality);
 			assert.deepStrictEqual(result, { kind: 'compatible', host: '127.0.0.1', port: 8080, connectionToken: undefined });
 		});
 
@@ -347,7 +347,7 @@ suite('SSH Remote Agent Host Helpers', () => {
 				['cat', { stdout: JSON.stringify(state), stderr: '', code: 0 }],
 				['kill -0', { stdout: '', stderr: '', code: 0 }],
 			]));
-			const result = await findRunningAgentHost(exec, logService, dataFolderName, quality);
+			const result = await findRunningAgentHost(exec, logService, serverDataFolderName, quality);
 			assert.deepStrictEqual(result, { kind: 'compatible', host: '127.0.0.1', port: 8080, connectionToken: undefined });
 		});
 
@@ -358,7 +358,7 @@ suite('SSH Remote Agent Host Helpers', () => {
 				['cat', { stdout: JSON.stringify(state), stderr: '', code: 0 }],
 				['kill -0', { stdout: '', stderr: '', code: 0 }],
 			]));
-			const result = await findRunningAgentHost(exec, logService, dataFolderName, quality);
+			const result = await findRunningAgentHost(exec, logService, serverDataFolderName, quality);
 			assert.deepStrictEqual(result, { kind: 'compatible', host: '127.0.0.1', port: 8080, connectionToken: undefined });
 		});
 
@@ -369,7 +369,7 @@ suite('SSH Remote Agent Host Helpers', () => {
 				['cat', { stdout: JSON.stringify(state), stderr: '', code: 0 }],
 				['kill -0', { stdout: '', stderr: '', code: 0 }],
 			]));
-			const result = await findRunningAgentHost(exec, logService, dataFolderName, quality);
+			const result = await findRunningAgentHost(exec, logService, serverDataFolderName, quality);
 			assert.deepStrictEqual(result, { kind: 'compatible', host: '::1', port: 8080, connectionToken: undefined });
 		});
 
@@ -379,7 +379,7 @@ suite('SSH Remote Agent Host Helpers', () => {
 				commands.push(command);
 				return { stdout: '', stderr: '', code: 1 };
 			};
-			await findRunningAgentHost(exec, logService, dataFolderName, quality);
+			await findRunningAgentHost(exec, logService, serverDataFolderName, quality);
 			assert.ok(commands.some(c => c.includes(lockfilePath)));
 		});
 	});
@@ -392,7 +392,7 @@ suite('SSH Remote Agent Host Helpers', () => {
 				commands.push(command);
 				return { stdout: '', stderr: '', code: 0 };
 			};
-			await writeAgentHostState(exec, logService, dataFolderName, quality, undefined, 8080, 'token');
+			await writeAgentHostState(exec, logService, serverDataFolderName, quality, undefined, 8080, 'token');
 			assert.strictEqual(commands.length, 0);
 		});
 
@@ -402,7 +402,7 @@ suite('SSH Remote Agent Host Helpers', () => {
 				commands.push(command);
 				return { stdout: '', stderr: '', code: 0 };
 			};
-			await writeAgentHostState(exec, logService, dataFolderName, quality, 0, 8080, 'token');
+			await writeAgentHostState(exec, logService, serverDataFolderName, quality, 0, 8080, 'token');
 			assert.strictEqual(commands.length, 0);
 		});
 
@@ -412,7 +412,7 @@ suite('SSH Remote Agent Host Helpers', () => {
 				commands.push(command);
 				return { stdout: '', stderr: '', code: 0 };
 			};
-			await writeAgentHostState(exec, logService, dataFolderName, quality, 1234, 8080, 'mytoken');
+			await writeAgentHostState(exec, logService, serverDataFolderName, quality, 1234, 8080, 'mytoken');
 			assert.strictEqual(commands.length, 1);
 			assert.ok(commands[0].includes(lockfilePath));
 			assert.ok(commands[0].includes('"schemaVersion":1'));
@@ -433,7 +433,7 @@ suite('SSH Remote Agent Host Helpers', () => {
 				commands.push(command);
 				return { stdout: '', stderr: '', code: 0 };
 			};
-			await writeAgentHostState(exec, logService, dataFolderName, quality, 1234, 8080, undefined);
+			await writeAgentHostState(exec, logService, serverDataFolderName, quality, 1234, 8080, undefined);
 			assert.strictEqual(commands.length, 1);
 			assert.ok(commands[0].includes('"connectionToken":null'));
 		});
@@ -445,7 +445,7 @@ suite('SSH Remote Agent Host Helpers', () => {
 			const warnings: string[] = [];
 			const capturingLog = new NullLogService();
 			capturingLog.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(' ')); };
-			await writeAgentHostState(exec, capturingLog, dataFolderName, quality, 1234, 8080, 'tok');
+			await writeAgentHostState(exec, capturingLog, serverDataFolderName, quality, 1234, 8080, 'tok');
 			assert.strictEqual(warnings.length, 1);
 			assert.ok(warnings[0].includes('Failed to write'));
 			assert.ok(warnings[0].includes('exit code 1'));
@@ -464,7 +464,7 @@ suite('SSH Remote Agent Host Helpers', () => {
 				}
 				return { stdout: '', stderr: '', code: 0 };
 			};
-			await cleanupRemoteAgentHost(exec, logService, dataFolderName, quality);
+			await cleanupRemoteAgentHost(exec, logService, serverDataFolderName, quality);
 			assert.ok(commands.some(c => c.includes(`rm -f ${lockfilePath}`)));
 		});
 
@@ -478,7 +478,7 @@ suite('SSH Remote Agent Host Helpers', () => {
 				}
 				return { stdout: '', stderr: '', code: 0 };
 			};
-			await cleanupRemoteAgentHost(exec, logService, dataFolderName, quality);
+			await cleanupRemoteAgentHost(exec, logService, serverDataFolderName, quality);
 			assert.ok(commands.some(c => c.includes('kill 5678')));
 			assert.ok(commands.some(c => c.includes(`rm -f ${lockfilePath}`)));
 		});
@@ -492,7 +492,7 @@ suite('SSH Remote Agent Host Helpers', () => {
 				}
 				return { stdout: '', stderr: '', code: 0 };
 			};
-			await cleanupRemoteAgentHost(exec, logService, dataFolderName, quality);
+			await cleanupRemoteAgentHost(exec, logService, serverDataFolderName, quality);
 			assert.ok(commands.some(c => c.includes('rm -f')));
 			assert.ok(!commands.some(c => c.startsWith('kill')));
 		});

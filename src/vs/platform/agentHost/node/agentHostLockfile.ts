@@ -15,11 +15,13 @@ const LOG_PREFIX = '[AgentHostLockfile]';
 /**
  * Local-filesystem variant of {@link getAgentHostLockfile}. Returns an
  * absolute path resolved against the current user's home directory rather
- * than the shell-style `~/<...>` path used over SSH. Both inputs are
- * validated for safe characters as defense-in-depth.
+ * than the shell-style `~/<...>` path used over SSH. Anchored on
+ * `serverDataFolderName` so it stays in sync with the Rust CLI (see
+ * `cli/src/state.rs::agent_host_root`). Both inputs are validated for
+ * safe characters as defense-in-depth.
  */
-export function getLocalAgentHostLockfilePath(dataFolderName: string, quality: string): string {
-	const d = validateShellToken(dataFolderName, 'data folder name');
+export function getLocalAgentHostLockfilePath(serverDataFolderName: string, quality: string): string {
+	const d = validateShellToken(serverDataFolderName, 'server data folder name');
 	const q = validateShellToken(quality, 'quality');
 	return join(os.homedir(), d, 'cli', `agent-host-${q}.lock`);
 }

@@ -23,7 +23,7 @@ suite('Agent Host Lockfile (local)', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
 	const logService = new NullLogService();
-	const dataFolderName = '.vscode-insiders';
+	const serverDataFolderName = '.vscode-server-insiders';
 	const quality = 'insider';
 
 	let tempDir: string;
@@ -48,24 +48,24 @@ suite('Agent Host Lockfile (local)', () => {
 
 	suite('getLocalAgentHostLockfilePath', () => {
 		test('returns absolute path under home directory', () => {
-			const result = getLocalAgentHostLockfilePath(dataFolderName, quality);
-			assert.strictEqual(result, join(os.homedir(), '.vscode-insiders', 'cli', 'agent-host-insider.lock'));
+			const result = getLocalAgentHostLockfilePath(serverDataFolderName, quality);
+			assert.strictEqual(result, join(os.homedir(), '.vscode-server-insiders', 'cli', 'agent-host-insider.lock'));
 		});
 
 		test('keys lockfile name on quality', () => {
-			const result = getLocalAgentHostLockfilePath('.vscode', 'stable');
-			assert.strictEqual(result, join(os.homedir(), '.vscode', 'cli', 'agent-host-stable.lock'));
+			const result = getLocalAgentHostLockfilePath('.vscode-server-oss', 'stable');
+			assert.strictEqual(result, join(os.homedir(), '.vscode-server-oss', 'cli', 'agent-host-stable.lock'));
 		});
 
-		test('rejects unsafe data folder names', () => {
-			assert.throws(() => getLocalAgentHostLockfilePath('foo bar', 'stable'), /Unsafe data folder name/);
-			assert.throws(() => getLocalAgentHostLockfilePath('foo/bar', 'stable'), /Unsafe data folder name/);
-			assert.throws(() => getLocalAgentHostLockfilePath('$(whoami)', 'stable'), /Unsafe data folder name/);
+		test('rejects unsafe server data folder names', () => {
+			assert.throws(() => getLocalAgentHostLockfilePath('foo bar', 'stable'), /Unsafe server data folder name/);
+			assert.throws(() => getLocalAgentHostLockfilePath('foo/bar', 'stable'), /Unsafe server data folder name/);
+			assert.throws(() => getLocalAgentHostLockfilePath('$(whoami)', 'stable'), /Unsafe server data folder name/);
 		});
 
 		test('rejects unsafe quality strings', () => {
-			assert.throws(() => getLocalAgentHostLockfilePath('.vscode', 'foo bar'), /Unsafe quality/);
-			assert.throws(() => getLocalAgentHostLockfilePath('.vscode', '/abs'), /Unsafe quality/);
+			assert.throws(() => getLocalAgentHostLockfilePath('.vscode-server-oss', 'foo bar'), /Unsafe quality/);
+			assert.throws(() => getLocalAgentHostLockfilePath('.vscode-server-oss', '/abs'), /Unsafe quality/);
 		});
 	});
 

@@ -9,7 +9,7 @@ export const remoteAgentHostStateSchemaVersion = 1;
 
 /**
  * Persisted record describing a running `code agent host` proxy, written to
- * the per-quality lockfile (`~/<dataFolderName>/cli/agent-host-<quality>.lock`).
+ * the per-quality lockfile (`~/<serverDataFolderName>/cli/agent-host-<quality>.lock`).
  *
  * This schema is shared with the Rust CLI in
  * `cli/src/tunnels/agent_host_metadata.rs`; field renames or removals MUST be

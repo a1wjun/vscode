@@ -80,13 +80,15 @@ export function redactToken(text: string): string {
  * Path to the per-quality agent host lockfile written by `code agent host`.
  *
  * Mirrors the Rust CLI's launcher path layout (see
- * `cli/src/state.rs::agent_host_lockfile`). Both the data folder name (the
- * Rust CLI exposes the same value via `VSCODE_CLI_DATA_FOLDER_NAME`, derived
- * from `IProductConfiguration.dataFolderName`) and the quality MUST agree, or
- * SSH discovery will look at the wrong file.
+ * `cli/src/state.rs::agent_host_root`). The Rust CLI anchors the agent host
+ * lockfile on `serverDataFolderName` (exposed to the CLI build as
+ * `VSCODE_CLI_SERVER_DATA_FOLDER_NAME`, derived from
+ * `IProductConfiguration.serverDataFolderName`) so a `code agent host`
+ * started locally and the supervisor spawned by the SSH `command-shell`
+ * path agree on the same lockfile regardless of `--cli-data-dir`.
  */
-export function getAgentHostLockfile(dataFolderName: string, quality: string): string {
-	const d = validateShellToken(dataFolderName, 'data folder name');
+export function getAgentHostLockfile(serverDataFolderName: string, quality: string): string {
+	const d = validateShellToken(serverDataFolderName, 'server data folder name');
 	const q = validateShellToken(quality, 'quality');
 	return `~/${d}/cli/agent-host-${q}.lock`;
 }
@@ -109,10 +111,10 @@ export type FindRunningAgentHostResult =
 export async function findRunningAgentHost(
 	exec: ISshExec,
 	logService: ILogService,
-	dataFolderName: string,
+	serverDataFolderName: string,
 	quality: string,
 ): Promise<FindRunningAgentHostResult> {
-	const stateFile = getAgentHostLockfile(dataFolderName, quality);
+	const stateFile = getAgentHostLockfile(serverDataFolderName, quality);
 	const { stdout, code } = await exec(`cat ${stateFile} 2>/dev/null`, { ignoreExitCode: true });
 	if (code !== 0 || !stdout.trim()) {
 		return { kind: 'notFound' };
@@ -179,7 +181,7 @@ export function dialAgentHostHost(bound: string | undefined): string {
 export async function writeAgentHostState(
 	exec: ISshExec,
 	logService: ILogService,
-	dataFolderName: string,
+	serverDataFolderName: string,
 	quality: string,
 	pid: number | undefined,
 	port: number,
@@ -190,7 +192,7 @@ export async function writeAgentHostState(
 		return;
 	}
 
-	const stateFile = getAgentHostLockfile(dataFolderName, quality);
+	const stateFile = getAgentHostLockfile(serverDataFolderName, quality);
 	const state = createRemoteAgentHostState({ pid, port, connectionToken, quality });
 	const json = JSON.stringify(state);
 	// Remove any existing file first so `>` creates a fresh inode with the
@@ -212,10 +214,10 @@ export async function writeAgentHostState(
 export async function cleanupRemoteAgentHost(
 	exec: ISshExec,
 	logService: ILogService,
-	dataFolderName: string,
+	serverDataFolderName: string,
 	quality: string,
 ): Promise<void> {
-	const stateFile = getAgentHostLockfile(dataFolderName, quality);
+	const stateFile = getAgentHostLockfile(serverDataFolderName, quality);
 	const { stdout, code } = await exec(`cat ${stateFile} 2>/dev/null`, { ignoreExitCode: true });
 	if (code === 0 && stdout.trim()) {
 		let state: { readonly pid: number } | undefined;
