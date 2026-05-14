@@ -21,8 +21,7 @@ interface IModelSelectionContext {
  * session type are returned. Otherwise, general-purpose models are returned.
  *
  * `isUserSelectable` defaults to `true` when omitted: only an explicit `false` hides
- * the model from the picker. This matches the model configuration view, which surfaces
- * every model unless the extension has actively opted it out.
+ * the model from the picker and this model-selection flow.
  */
 export function filterModelsForSession(
 	models: ILanguageModelChatMetadataAndIdentifier[],
