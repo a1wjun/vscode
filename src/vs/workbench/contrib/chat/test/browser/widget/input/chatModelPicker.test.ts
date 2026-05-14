@@ -1100,26 +1100,6 @@ suite('chat model picker - languageModelChatProvider visibility regression', () 
 
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	function createPickerLanguageModelsServiceStub(
-		vendors: { vendor: string; displayName: string; modelIdentifiers: string[] }[],
-	): ILanguageModelsService {
-		return {
-			getModelConfigurationActions: () => [],
-			getModelConfiguration: () => undefined,
-			getVendors: () => vendors.map(v => ({ vendor: v.vendor, displayName: v.displayName })),
-			getLanguageModelGroups: (vendor: string) => {
-				const v = vendors.find(x => x.vendor === vendor);
-				if (!v) {
-					return [];
-				}
-				return [{
-					group: { vendor: v.vendor, name: v.displayName },
-					modelIdentifiers: v.modelIdentifiers,
-				}];
-			},
-		} as unknown as ILanguageModelsService;
-	}
-
 	function createCopilotModel(
 		id: string,
 		name: string,
@@ -1181,26 +1161,7 @@ suite('chat model picker - languageModelChatProvider visibility regression', () 
 			ChatModeKind.Ask,
 			ChatAgentLocation.Chat,
 		);
-		const items = buildModelPickerItems(
-			filtered,
-			undefined,
-			[],
-			[],
-			{},
-			'1.100.0',
-			StateType.Idle,
-			() => { },
-			undefined,
-			undefined,
-			true,
-			undefined,
-			stubChatEntitlementService,
-			true,
-			true,
-			languageModelsService,
-			undefined,
-			false,
-		);
+		const items = callBuild(filtered, { languageModelsService });
 		return items.filter(i =>
 			i.kind === ActionListItemKind.Action &&
 			!i.isSectionToggle &&
@@ -1209,12 +1170,28 @@ suite('chat model picker - languageModelChatProvider visibility regression', () 
 		);
 	}
 
+	/**
+	 * Builds a one-group-per-vendor `ILanguageModelsService` stub on top of
+	 * the file-level `createLanguageModelsServiceStub` helper.
+	 */
+	function buildLmService(
+		vendors: { vendor: string; displayName: string; modelIdentifiers: string[] }[],
+	): ILanguageModelsService {
+		return createLanguageModelsServiceStub(
+			vendors.map(v => ({
+				vendor: v.vendor,
+				displayName: v.displayName,
+				groups: [{ name: v.displayName, modelIdentifiers: v.modelIdentifiers }],
+			})),
+		);
+	}
+
 	test('regression: third-party model with isUserSelectable omitted is shown in the picker', () => {
 		// Original bug: a `languageModelChatProvider` model that omits
 		// `isUserSelectable` was treated as falsy and dropped from the picker
 		// even though the model configuration view kept showing it.
 		const tp = createThirdPartyModel('tp', 'TP', { isUserSelectable: undefined });
-		const lmService = createPickerLanguageModelsServiceStub([
+		const lmService = buildLmService([
 			{ vendor: 'my-vendor', displayName: 'My Vendor', modelIdentifiers: [tp.identifier] },
 		]);
 
@@ -1228,7 +1205,7 @@ suite('chat model picker - languageModelChatProvider visibility regression', () 
 
 	test('regression: third-party model with isUserSelectable: true is shown in the picker', () => {
 		const tp = createThirdPartyModel('tp', 'TP', { isUserSelectable: true });
-		const lmService = createPickerLanguageModelsServiceStub([
+		const lmService = buildLmService([
 			{ vendor: 'my-vendor', displayName: 'My Vendor', modelIdentifiers: [tp.identifier] },
 		]);
 
@@ -1240,7 +1217,7 @@ suite('chat model picker - languageModelChatProvider visibility regression', () 
 		// The default-to-true rule: only an explicit `false` hides a model.
 		// This applies uniformly to copilot and third-party vendors.
 		const tp = createThirdPartyModel('tp', 'TP', { isUserSelectable: false });
-		const lmService = createPickerLanguageModelsServiceStub([
+		const lmService = buildLmService([
 			{ vendor: 'my-vendor', displayName: 'My Vendor', modelIdentifiers: [tp.identifier] },
 		]);
 
@@ -1254,7 +1231,7 @@ suite('chat model picker - languageModelChatProvider visibility regression', () 
 
 	test('regression: copilot internal model (isUserSelectable: false) is hidden from the picker', () => {
 		const internal = createCopilotModel('internal', 'Internal', { isUserSelectable: false });
-		const lmService = createPickerLanguageModelsServiceStub([
+		const lmService = buildLmService([
 			{ vendor: 'copilot', displayName: 'GitHub Copilot', modelIdentifiers: [internal.identifier] },
 		]);
 
@@ -1270,7 +1247,7 @@ suite('chat model picker - languageModelChatProvider visibility regression', () 
 		// `isUserSelectable` defaults to `true` for every vendor, so a copilot
 		// model that omits the flag is now treated as user-selectable.
 		const model = createCopilotModel('public', 'Public', { isUserSelectable: undefined });
-		const lmService = createPickerLanguageModelsServiceStub([
+		const lmService = buildLmService([
 			{ vendor: 'copilot', displayName: 'GitHub Copilot', modelIdentifiers: [model.identifier] },
 		]);
 
@@ -1280,7 +1257,7 @@ suite('chat model picker - languageModelChatProvider visibility regression', () 
 
 	test('regression: copilot public model (isUserSelectable: true) is shown in the picker', () => {
 		const pub = createCopilotModel('gpt-4o', 'GPT-4o', { isUserSelectable: true });
-		const lmService = createPickerLanguageModelsServiceStub([
+		const lmService = buildLmService([
 			{ vendor: 'copilot', displayName: 'GitHub Copilot', modelIdentifiers: [pub.identifier] },
 		]);
 
@@ -1295,7 +1272,7 @@ suite('chat model picker - languageModelChatProvider visibility regression', () 
 		const tpFalse = createThirdPartyModel('tp-false', 'TP False', { isUserSelectable: false });
 		const tpUndefined = createThirdPartyModel('tp-undef', 'TP Undef', { isUserSelectable: undefined });
 
-		const lmService = createPickerLanguageModelsServiceStub([
+		const lmService = buildLmService([
 			{
 				vendor: 'copilot',
 				displayName: 'GitHub Copilot',
@@ -1329,7 +1306,7 @@ suite('chat model picker - languageModelChatProvider visibility regression', () 
 		const tpUndefined = createThirdPartyModel('tp-undef', 'TP Undef', { isUserSelectable: undefined });
 		const allThirdParty = [tpTrue, tpUndefined];
 
-		const lmService = createPickerLanguageModelsServiceStub([
+		const lmService = buildLmService([
 			{
 				vendor: 'my-vendor',
 				displayName: 'My Vendor',
