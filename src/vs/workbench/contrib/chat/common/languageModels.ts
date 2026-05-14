@@ -820,7 +820,7 @@ export class LanguageModelsService implements ILanguageModelsService {
 					for (const m of models) {
 						if (vendor.isDefault) {
 							// Special case for copilot models - they are all user selectable unless marked otherwise
-							if (m.metadata.isUserSelectable) {
+							if (m.metadata.isUserSelectable !== false) {
 								modelIdentifiers.push(m.identifier);
 							} else {
 								this._logService.trace(`[LM] Skipping model ${m.identifier} from model picker as it is not user selectable.`);
