@@ -67,6 +67,8 @@ export namespace ChatEntitlementContextKeys {
 	export const completionsQuotaExceeded = new RawContextKey<boolean>('completionsQuotaExceeded', false, true);
 
 	export const chatAnonymous = new RawContextKey<boolean>('chatAnonymous', false, true);
+
+	export const clientByokEnabled = new RawContextKey<boolean>('github.copilot.clientByokEnabled', true, true);
 }
 
 export const IChatEntitlementService = createDecorator<IChatEntitlementService>('chatEntitlementService');
@@ -356,6 +358,12 @@ export class ChatEntitlementService extends Disposable implements IChatEntitleme
 
 		this.anonymousContextKey = ChatEntitlementContextKeys.chatAnonymous.bindTo(this.contextKeyService);
 		this.anonymousContextKey.set(this.anonymous);
+
+		// Only apply the workbench-side default if no other source (e.g. the Copilot extension)
+		// has already set this key; binding would otherwise reset it to the declared default.
+		if (this.contextKeyService.getContextKeyValue<boolean>(ChatEntitlementContextKeys.clientByokEnabled.key) === undefined) {
+			ChatEntitlementContextKeys.clientByokEnabled.bindTo(this.contextKeyService);
+		}
 
 		this.onDidChangeEntitlement = Event.map(
 			Event.filter(
