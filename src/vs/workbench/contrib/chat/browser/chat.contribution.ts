@@ -1086,7 +1086,7 @@ configurationRegistry.registerConfiguration({
 		[ChatConfiguration.ToolRiskAssessmentModel]: {
 			type: 'string',
 			description: nls.localize('chat.tools.riskAssessment.model', "The language model id used to generate tool risk assessments. Should be a small, fast model."),
-			default: 'copilot-fast',
+			default: 'copilot-utility-small',
 			tags: ['experimental', 'advanced'],
 			experiment: {
 				mode: 'auto'
