@@ -29,6 +29,12 @@ export const enum AgentHostIpcChannels {
 	Logger = 'agentHostLogger',
 	/** Channel for WebSocket client connection count (server process management only) */
 	ConnectionTracker = 'agentHostConnectionTracker',
+	/**
+	 * Channel registered by the remote server that proxies AHP JSON-RPC
+	 * frames between a renderer and the agent host running on the server.
+	 * Pairs with `AgentHostIpcChannelTransport` on the renderer side.
+	 */
+	RemoteProxy = 'agentHostProxy',
 }
 
 /** Configuration key that controls whether the local agent host process is spawned. */

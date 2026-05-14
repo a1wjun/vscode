@@ -11,7 +11,6 @@ import { generateUuid } from '../../../base/common/uuid.js';
 import { getDelayedChannel, ProxyChannel } from '../../../base/parts/ipc/common/ipc.js';
 import { Client as MessagePortClient } from '../../../base/parts/ipc/common/ipc.mp.js';
 import { acquirePort } from '../../../base/parts/ipc/electron-browser/ipc.mp.js';
-import { InstantiationType, registerSingleton } from '../../instantiation/common/extensions.js';
 import { IInstantiationService } from '../../instantiation/common/instantiation.js';
 import { IConfigurationService } from '../../configuration/common/configuration.js';
 import { IEnvironmentService } from '../../environment/common/environment.js';
@@ -35,7 +34,7 @@ import { AGENT_HOST_CLIENT_RESOURCE_CHANNEL, AgentHostClientResourceChannel } fr
  * the main process relay. Uses the same `getDelayedChannel` pattern as
  * the pty host so the proxy is usable immediately while the port is acquired.
  */
-class AgentHostServiceClient extends Disposable implements IAgentHostService {
+export class LocalAgentHostServiceClient extends Disposable implements IAgentHostService {
 	declare readonly _serviceBrand: undefined;
 
 	/** Unique identifier for this window, used in action envelope origin tracking. */
@@ -259,5 +258,3 @@ class AgentHostServiceClient extends Disposable implements IAgentHostService {
 		return this._connectionTracker.getInspectInfo(tryEnable);
 	}
 }
-
-registerSingleton(IAgentHostService, AgentHostServiceClient, InstantiationType.Delayed);
