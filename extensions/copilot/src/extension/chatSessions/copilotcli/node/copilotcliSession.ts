@@ -1486,11 +1486,15 @@ export class CopilotCLISession extends DisposableStore implements ICopilotCLISes
 			if (isQuotaError) {
 				this._chatQuotaService.clearQuota();
 				let plan: string | undefined;
+				let isUsageBasedBilling: boolean | undefined;
+				let quotaResetDate: string | undefined;
 				try {
 					const copilotToken = await this._authenticationService.getCopilotToken();
 					plan = copilotToken.copilotPlan;
+					isUsageBasedBilling = copilotToken.tokenBasedBilling;
+					quotaResetDate = copilotToken.quotaInfo.quota_reset_date;
 				} catch { /* token unavailable */ }
-				throw new CopilotCLIQuotaExceededError(getQuotaMessageForPlan(plan));
+				throw new CopilotCLIQuotaExceededError(getQuotaMessageForPlan(plan, isUsageBasedBilling, quotaResetDate));
 			}
 			this.logService.trace(`[CopilotCLISession] Invoking session (completed) ${this.sessionId}`);
 			const resolvedToolIdEditMap: Record<string, string> = {};
@@ -1525,11 +1529,15 @@ export class CopilotCLISession extends DisposableStore implements ICopilotCLISes
 			if (isQuotaError) {
 				this._chatQuotaService.clearQuota();
 				let plan: string | undefined;
+				let isUsageBasedBilling: boolean | undefined;
+				let quotaResetDate: string | undefined;
 				try {
 					const copilotToken = await this._authenticationService.getCopilotToken();
 					plan = copilotToken.copilotPlan;
+					isUsageBasedBilling = copilotToken.tokenBasedBilling;
+					quotaResetDate = copilotToken.quotaInfo.quota_reset_date;
 				} catch { /* token unavailable */ }
-				throw new CopilotCLIQuotaExceededError(getQuotaMessageForPlan(plan));
+				throw new CopilotCLIQuotaExceededError(getQuotaMessageForPlan(plan, isUsageBasedBilling, quotaResetDate));
 			}
 			this._status = ChatSessionStatus.Failed;
 			this._statusChange.fire(this._status);
