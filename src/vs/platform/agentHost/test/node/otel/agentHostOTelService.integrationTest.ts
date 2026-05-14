@@ -129,7 +129,8 @@ function restoreEnv(saved: ISavedEnv): void {
 }
 
 function makeEnvService(userDataPath: string): INativeEnvironmentService {
-	return { _serviceBrand: undefined, userDataPath } as INativeEnvironmentService;
+	const env: Partial<INativeEnvironmentService> = { _serviceBrand: undefined, userDataPath };
+	return env as INativeEnvironmentService;
 }
 
 suite('platform/agentHost - AgentHostOTelService (integration)', () => {
