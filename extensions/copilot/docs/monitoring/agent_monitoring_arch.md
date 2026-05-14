@@ -435,6 +435,105 @@ Run with: `npm test -- --grep "OTel\|Bridge"`
 
 ---
 
+## Agent Host OTel (Out-of-Process Pipeline)
+
+In addition to the four in-extension agent paths described above, VS Code has an **agent host** — a separate utility process under `src/vs/platform/agentHost/` that embeds the native `@github/copilot-sdk` runtime. The agent host runs entirely outside the extension host, so its OTel pipeline is a parallel architecture with its own service, settings, env vars, and SQLite store. Nothing in `extensions/copilot/src/platform/otel/` runs inside it.
+
+| Property | Agent Host OTel | Extension OTel |
+|---|---|---|
+| Process | Separate utility process (`src/vs/platform/agentHost/node/`) | Extension host |
+| Settings prefix | `chat.agentHost.otel.*` | `github.copilot.chat.otel.*` |
+| Service | `IAgentHostOTelService` (`src/vs/platform/agentHost/node/otel/agentHostOTelService.ts`) | `IOTelService` (`extensions/copilot/src/platform/otel/`) |
+| SDK | `@github/copilot-sdk` `TelemetryConfig` | `@opentelemetry/sdk-node` directly |
+| Persistence | `<userData>/agent-host/otel/agent-host-traces.db` | `<extensionGlobalStorage>/otel/spans.db` |
+
+### Two-Mode Design
+
+```
+                 ┌─────────────────────────────────────────────────────────────────┐
+                 │  Agent Host process (src/vs/platform/agentHost)                  │
+                 │                                                                 │
+   user setting  │   pass-through mode                                              │
+   chat.agent    │   ┌─────────────────────────┐    OTLP/HTTP    ┌──────────────┐  │
+   Host.otel.*   ─→  │ copilot-sdk             │ ─────────────── │ user-config  │  │
+                 │   │ TelemetryConfig         │                 │ OTLP sink    │  │
+   spawn-time    │   └─────────────────────────┘                 └──────────────┘  │
+   env binding   │                                                                 │
+   in            │   db mode (dbSpanExporter.enabled)                              │
+   electron-     │   ┌─────────────────────────┐    127.0.0.1    ┌──────────────┐  │
+   AgentHostStar ─→  │ copilot-sdk             │ ─────────────── │ loopback     │  │
+   ter.ts and    │   │ TelemetryConfig         │  ephemeral port │ OTLP receiver│  │
+   nodeAgent     │   │ (re-pointed at loopback)│                 │ (localOtlp   │  │
+   HostStarter   │   └─────────────────────────┘                 │  Receiver)   │  │
+   .ts           │                                               └──────┬───────┘  │
+                 │                                                      │          │
+                 │                                onSpans  ────────────►├─→ SQLite │
+                 │                                                      │   store  │
+                 │                                onForward ────────────┘          │
+                 │                                       │                         │
+                 │                                       ▼                         │
+                 │                          OtlpHttpForwarder   OTLP/HTTP          │
+                 │                          (optional fan-out) ─────────────────→  │ user-config OTLP sink
+                 └─────────────────────────────────────────────────────────────────┘
+```
+
+- **Pass-through mode** (default when only `otlpEndpoint` is configured): the SDK is constructed with the user's exporter settings unmodified and exports directly. The agent host does not intercept span data.
+- **DB mode** (`COPILOT_OTEL_DB_SPAN_EXPORTER_ENABLED=true`): `AgentHostOTelService` starts a `LocalOtlpHttpReceiver` on `127.0.0.1` with an ephemeral port, then constructs the SDK pointing at that loopback URL. For each batch the receiver decodes the OTLP-JSON body and inserts spans into `OTelSqliteStore` (`onSpans`). If an external `otlpEndpoint` is also configured, the receiver fans the **raw** OTLP body out to an `OtlpHttpForwarder` (`onForward`) so the user's collector keeps receiving traces alongside the local DB.
+
+### File Structure
+
+```
+src/vs/platform/agentHost/
+├── common/
+│   └── agentService.ts                # Setting IDs, env var names, buildAgentHostOTelEnv()
+├── electron-main/
+│   └── electronAgentHostStarter.ts    # Spawns agent host (Electron); calls buildAgentHostOTelEnv()
+└── node/
+    ├── nodeAgentHostStarter.ts        # Spawns agent host (server / non-Electron path)
+    └── otel/
+        └── agentHostOTelService.ts    # IAgentHostOTelService impl, two-mode wiring
+
+src/vs/platform/otel/
+├── node/otlp/
+│   ├── localOtlpReceiver.ts           # In-process OTLP/HTTP receiver (127.0.0.1, ephemeral)
+│   ├── otlpJsonDecode.ts              # OTLP-JSON → ICompletedSpanData
+│   └── outboundForwarder.ts           # OtlpHttpForwarder + FileForwarder + ConsoleForwarder + CompositeForwarder
+└── node/sqlite/
+    └── otelSqliteStore.ts             # Persistent span store (DB schema lives here)
+```
+
+### Settings → Env Var Translation
+
+`buildAgentHostOTelEnv()` ([common/agentService.ts](../../../src/vs/platform/agentHost/common/agentService.ts)) is the single translation point. The starter (`electronAgentHostStarter.ts` / `nodeAgentHostStarter.ts`) reads settings, calls `buildAgentHostOTelEnv(settings, parentEnv)`, and merges the result into the spawned process's environment. Parent-env values always win.
+
+| Setting | Env var |
+|---|---|
+| `chat.agentHost.otel.enabled` | `COPILOT_OTEL_ENABLED` |
+| `chat.agentHost.otel.exporterType` | `COPILOT_OTEL_EXPORTER_TYPE` |
+| `chat.agentHost.otel.otlpEndpoint` | `OTEL_EXPORTER_OTLP_ENDPOINT` (`COPILOT_OTEL_ENDPOINT` also accepted, takes precedence) |
+| `chat.agentHost.otel.captureContent` | `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` |
+| `chat.agentHost.otel.outfile` | `COPILOT_OTEL_FILE_EXPORTER_PATH` |
+| `chat.agentHost.otel.dbSpanExporter.enabled` | `COPILOT_OTEL_DB_SPAN_EXPORTER_ENABLED` |
+
+`OTEL_EXPORTER_OTLP_PROTOCOL`, `OTEL_EXPORTER_OTLP_HEADERS`, and `OTEL_RESOURCE_ATTRIBUTES` flow via env inheritance — they are not translated from settings.
+
+`readAgentHostOTelEnv()` ([agentHostOTelService.ts](../../../src/vs/platform/agentHost/node/otel/agentHostOTelService.ts)) is the inverse: it reads `process.env` inside the agent host and produces the `ResolvedConfig` that drives mode selection and outbound forwarding.
+
+### OTLP/HTTP Forwarder Conventions
+
+`OtlpHttpForwarder` accepts an endpoint in either of the two shapes that SDKs expect for the standard `OTEL_EXPORTER_OTLP_ENDPOINT` env var:
+
+- **Bare base URL** (`http://host:4318` or `http://host:4318/`) — `/v1/traces` is auto-appended via `resolveOtlpTracesEndpoint()` in [outboundForwarder.ts](../../../src/vs/platform/otel/node/otlp/outboundForwarder.ts).
+- **Full signal-specific URL** (`http://host:4318/v1/traces`, `http://host:4318/custom/path`) — used verbatim.
+
+This matches the path-handling rules of the official OpenTelemetry SDKs and ensures the pass-through SDK path and the DB-mode outbound forwarder path behave identically given the same `otlpEndpoint` setting.
+
+### Spawn-Time Env Binding
+
+The agent host inherits its env vars at fork time. `IAgentHostOTelService` reads `process.env` once in its constructor and caches the resolved config. Changing a `chat.agentHost.otel.*` setting at runtime therefore has **no effect** on the currently-running agent host — the host must respawn (reload window / restart VS Code) to pick up the new value. This is the same model used by the rest of the agent host service surface.
+
+---
+
 ## Risks & Known Limitations
 
 | Risk | Impact | Mitigation |
@@ -445,3 +544,4 @@ Run with: `npm test -- --grep "OTel\|Bridge"`
 | Duplicate `invoke_agent` spans in OTLP | Extension root + SDK root both exported | Different `service.name` distinguishes them |
 | Claude file exporter not supported | Claude subprocess can't write to JSON-lines file | Documented limitation |
 | CLI runtime only supports `otlp-http` | Terminal CLI can't use gRPC-only endpoints | Documented limitation |
+| Agent host env binding at spawn time | Setting changes don't apply to a running agent host | Reload window or restart VS Code after changing `chat.agentHost.otel.*` |
