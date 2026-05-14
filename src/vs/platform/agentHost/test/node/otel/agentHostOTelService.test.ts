@@ -18,7 +18,8 @@ import {
 	IOtlpExportTraceServiceRequest,
 	OtlpSpanKind,
 } from '../../../../otel/node/otlp/otlpJsonTypes.js';
-import { AgentHostOTelService, IAgentHostOTelService, readAgentHostOTelEnv } from '../../../node/otel/agentHostOTelService.js';
+import { IAgentHostOTelService } from '../../../common/otel/agentHostOTelService.js';
+import { AgentHostOTelService, readAgentHostOTelEnv } from '../../../node/otel/agentHostOTelService.js';
 import { AgentHostOTelSpansDbSubPath } from '../../../common/agentService.js';
 
 interface IPostResponse {

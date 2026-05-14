@@ -33,7 +33,7 @@ import { ProtectedResourceMetadata, type ConfigSchema, type ModelSelection, type
 import { AHP_AUTH_REQUIRED, ProtocolError } from '../../common/state/sessionProtocol.js';
 import { CustomizationRef, CustomizationStatus, ResponsePartKind, SessionInputResponseKind, parseSubagentSessionUri, type MessageAttachment, type PendingMessage, type PolicyState, type ResponsePart, type SessionInputAnswer, type ToolCallResult, type Turn } from '../../common/state/sessionState.js';
 import { IAgentConfigurationService } from '../agentConfigurationService.js';
-import { IAgentHostOTelService } from '../otel/agentHostOTelService.js';
+import { IAgentHostOTelService } from '../../common/otel/agentHostOTelService.js';
 import { IAgentHostGitService, META_DIFF_BASE_BRANCH } from '../agentHostGitService.js';
 import { IAgentHostTerminalManager } from '../agentHostTerminalManager.js';
 import { CopilotAgentSession, SessionWrapperFactory, type CopilotSdkMode, type IActiveClientSnapshot } from './copilotAgentSession.js';

@@ -24,7 +24,8 @@ import { CopilotApiService, ICopilotApiService } from './shared/copilotApiServic
 import { ClaudeAgent } from './claude/claudeAgent.js';
 import { ClaudeAgentSdkService, IClaudeAgentSdkService } from './claude/claudeAgentSdkService.js';
 import { ClaudeProxyService, IClaudeProxyService } from './claude/claudeProxyService.js';
-import { AgentHostOTelService, IAgentHostOTelService } from './otel/agentHostOTelService.js';
+import { IAgentHostOTelService } from '../common/otel/agentHostOTelService.js';
+import { AgentHostOTelService } from './otel/agentHostOTelService.js';
 import { ProtocolServerHandler } from './protocolServerHandler.js';
 import { WebSocketProtocolServer } from './webSocketTransport.js';
 import { INativeEnvironmentService } from '../../environment/common/environment.js';

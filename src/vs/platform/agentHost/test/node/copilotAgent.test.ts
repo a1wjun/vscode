@@ -30,7 +30,7 @@ import { AgentConfigurationService, IAgentConfigurationService } from '../../nod
 import { AgentHostStateManager } from '../../node/agentHostStateManager.js';
 import { IAgentHostGitService } from '../../node/agentHostGitService.js';
 import { IAgentHostTerminalManager } from '../../node/agentHostTerminalManager.js';
-import { IAgentHostOTelService } from '../../node/otel/agentHostOTelService.js';
+import { IAgentHostOTelService } from '../../common/otel/agentHostOTelService.js';
 import { COPILOT_AGENT_HOST_SYSTEM_MESSAGE, CopilotAgent, getCopilotBranchNameHintFromMessage, getCopilotWorktreeBranchName, getCopilotWorktreeName, getCopilotWorktreesRoot } from '../../node/copilot/copilotAgent.js';
 import { CopilotAgentSession, type SessionWrapperFactory } from '../../node/copilot/copilotAgentSession.js';
 import { CopilotSessionWrapper } from '../../node/copilot/copilotSessionWrapper.js';

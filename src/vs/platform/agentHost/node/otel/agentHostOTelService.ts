@@ -9,7 +9,6 @@ import type { TelemetryConfig } from '@github/copilot-sdk';
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import { INativeEnvironmentService } from '../../../environment/common/environment.js';
-import { createDecorator } from '../../../instantiation/common/instantiation.js';
 import { ILogService } from '../../../log/common/log.js';
 import { startLocalOtlpHttpReceiver, type ILocalOtlpHttpReceiver } from '../../../otel/node/otlp/localOtlpReceiver.js';
 import {
@@ -21,42 +20,7 @@ import {
 } from '../../../otel/node/otlp/outboundForwarder.js';
 import { OTelSqliteStore } from '../../../otel/node/sqlite/otelSqliteStore.js';
 import { AgentHostOTelSpansDbSubPath } from '../../common/agentService.js';
-
-/**
- * Lean service that wires the @github/copilot-sdk telemetry hook to either:
- *
- *  - **External-only mode**: pass user-configured exporter settings straight through
- *    so the SDK's spawned CLI exports OTel data directly to the user's sink.
- *  - **DB mode** (`COPILOT_OTEL_DB_SPAN_EXPORTER_ENABLED=true`): point the SDK at a
- *    loopback OTLP/HTTP receiver, persist all spans into a local SQLite store, and
- *    optionally fan-out to a user-configured external sink as well.
- *
- * Designed to be extended by the wider workbench-side tracer landing in
- * follow-up PRs; this PR provides the agent-host-side plumbing only.
- */
-export interface IAgentHostOTelService {
-	readonly _serviceBrand: undefined;
-
-	/**
-	 * Returns the TelemetryConfig to hand to `new CopilotClient({ telemetry })`,
-	 * starting the loopback receiver + store on first call when in DB mode.
-	 * Resolves to `undefined` when telemetry is disabled.
-	 */
-	getSdkTelemetryConfig(): Promise<TelemetryConfig | undefined>;
-
-	/**
-	 * Path of the SQLite span store, or `undefined` when DB mode is off.
-	 */
-	getSpansDbPath(): URI | undefined;
-
-	/**
-	 * Drain any in-flight outbound forwarding. Safe to call concurrently with
-	 * ongoing ingestion.
-	 */
-	flush(): Promise<void>;
-}
-
-export const IAgentHostOTelService = createDecorator<IAgentHostOTelService>('agentHostOTelService');
+import { IAgentHostOTelService } from '../../common/otel/agentHostOTelService.js';
 
 /** Sub-path under the user data directory where the span DB lives. */
 const SPANS_DB_SUBPATH = AgentHostOTelSpansDbSubPath;

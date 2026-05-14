@@ -36,7 +36,8 @@ import { CopilotApiService, ICopilotApiService } from './shared/copilotApiServic
 import { ClaudeAgent } from './claude/claudeAgent.js';
 import { ClaudeAgentSdkService, IClaudeAgentSdkService } from './claude/claudeAgentSdkService.js';
 import { ClaudeProxyService, IClaudeProxyService } from './claude/claudeProxyService.js';
-import { AgentHostOTelService, IAgentHostOTelService } from './otel/agentHostOTelService.js';
+import { IAgentHostOTelService } from '../common/otel/agentHostOTelService.js';
+import { AgentHostOTelService } from './otel/agentHostOTelService.js';
 import { AgentService } from './agentService.js';
 import { AgentHostClaudeSdkPathEnvVar } from '../common/agentService.js';
 import { IAgentConfigurationService } from './agentConfigurationService.js';
