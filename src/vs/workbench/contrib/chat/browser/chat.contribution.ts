@@ -1111,7 +1111,7 @@ configurationRegistry.registerConfiguration({
 		},
 		[ChatConfiguration.UtilityModel]: {
 			type: 'string',
-			description: nls.localize('chat.utilityModel.description', "Override the language model used by built-in utility flows (titles, summaries, fallback responses, etc.). Leave empty to use the default model.\n\nStored as `${vendor}/${id}`, where `vendor` and `id` correspond to a `vscode.lm.selectChatModels({ vendor, id })` selector. The empty string falls back to the built-in default."),
+			description: nls.localize('chat.utilityModel.description', "Override the language model used by built-in utility flows (titles, summaries, fallback responses, etc.). Leave empty to use the default model."),
 			default: '',
 			enum: UtilityModelContribution.modelIds,
 			enumItemLabels: UtilityModelContribution.modelLabels,
@@ -1119,7 +1119,7 @@ configurationRegistry.registerConfiguration({
 		},
 		[ChatConfiguration.UtilitySmallModel]: {
 			type: 'string',
-			description: nls.localize('chat.utilitySmallModel.description', "Override the language model used by built-in small/fast utility flows (commit messages, intent detection, inline-chat progress, etc.). A fast and inexpensive model is recommended. Leave empty to use the default model.\n\nStored as `${vendor}/${id}`, where `vendor` and `id` correspond to a `vscode.lm.selectChatModels({ vendor, id })` selector. The empty string falls back to the built-in default."),
+			description: nls.localize('chat.utilitySmallModel.description', "Override the language model used by built-in small/fast utility flows (commit messages, intent detection, inline-chat progress, etc.). A fast and inexpensive model is recommended. Leave empty to use the default model."),
 			default: '',
 			enum: UtilitySmallModelContribution.modelIds,
 			enumItemLabels: UtilitySmallModelContribution.modelLabels,
