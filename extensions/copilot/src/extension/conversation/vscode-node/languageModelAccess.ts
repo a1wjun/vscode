@@ -424,16 +424,6 @@ export class LanguageModelAccess extends Disposable implements IExtensionContrib
 
 			// Only publish the alias as an entry under the `copilot` vendor
 			// when the resolved endpoint is itself a copilot-provider endpoint.
-			//
-			// Publishing a BYOK-backed alias here would let any extension
-			// resolve `vscode.lm.selectChatModels({ vendor: 'copilot', id:
-			// 'copilot-utility[-small]' })` and proxy requests through the
-			// user's BYOK endpoint without going through that provider's
-			// authorization flow. `isUserSelectable: false` does not prevent
-			// the explicit-id selector from matching the entry. Internal
-			// utility callers do not depend on the alias being published —
-			// they go through `IEndpointProvider.getChatEndpoint(family)`,
-			// which already honors the override.
 			if (!(endpoint instanceof CopilotChatEndpoint)) {
 				this._logService.trace(`[LanguageModelAccess] Not publishing alias '${family}' for non-copilot endpoint '${endpoint.model}' (BYOK override) to avoid bypassing the underlying provider's authorization.`);
 				continue;

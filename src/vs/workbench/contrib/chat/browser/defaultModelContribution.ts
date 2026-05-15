@@ -40,21 +40,16 @@ export interface DefaultModelContributionOptions {
 	 * When `true`, eagerly call `selectLanguageModels({})` at construction
 	 * time and on `onDidChangeLanguageModelVendors` to force every registered
 	 * provider extension to resolve its models. This ensures models from
-	 * providers that no other consumer has touched yet (e.g. BYOK Anthropic
-	 * / OpenAI) surface in the picker — at the cost of activating those
-	 * provider extensions.
+	 * providers that no other consumer has touched yet (e.g. BYOK) surface in
+	 * the picker at the cost of activating those provider extensions.
 	 *
 	 * Defaults to `false` so contributions that run during startup
-	 * (`BlockRestore`) don't pay that activation cost. Contributions that
-	 * register at later phases (e.g. `Eventually`) can opt in.
+	 * (`BlockRestore`) don't pay that activation cost.
 	 */
 	readonly eagerVendorResolution?: boolean;
 	/**
 	 * Optional override for the label of the default ("empty") enum entry.
-	 * When omitted, defaults to `"Auto (Vendor Default)"`. Provide a
-	 * setting-specific copy when the empty value does not represent a
-	 * vendor-default (e.g. `chat.utilityModel` falls back to the built-in
-	 * utility family default, not a vendor default).
+	 * When omitted, defaults to `"Auto (Vendor Default)"`.
 	 */
 	readonly defaultEntryLabel?: string;
 	/**
@@ -68,9 +63,6 @@ export interface DefaultModelContributionOptions {
  * Creates the initial static arrays used by configuration registration code.
  * The returned arrays are mutated in-place by {@link DefaultModelContribution}.
  *
- * `defaultEntryLabel` / `defaultEntryDescription` override the copy used for
- * the empty/default enum entry. Pass setting-specific copy when the empty
- * value does not represent a vendor-default.
  */
 export function createDefaultModelArrays(defaultEntryLabel?: string, defaultEntryDescription?: string): DefaultModelArrays {
 	return {
@@ -95,10 +87,7 @@ export abstract class DefaultModelContribution extends Disposable {
 		super();
 		this._register(_languageModelsService.onDidChangeLanguageModels(() => this._updateModelValues()));
 		if (_options.eagerVendorResolution) {
-			// New vendors (e.g. BYOK Anthropic) may register after this contribution
-			// has already started. Re-trigger resolution so their models surface in
-			// the picker too — `selectLanguageModels({})` only resolves vendors that
-			// were registered at call time.
+			// New vendors (e.g. BYOK) may register after this contribution has already started.
 			this._register(_languageModelsService.onDidChangeLanguageModelVendors(() => this._resolveAllVendors()));
 		}
 		this._updateModelValues();
@@ -108,13 +97,6 @@ export abstract class DefaultModelContribution extends Disposable {
 	}
 
 	private _resolveAllVendors(): void {
-		// Trigger resolution of every registered vendor so models from providers that
-		// haven't yet been touched by another consumer (e.g. BYOK Anthropic / OpenAI)
-		// also surface in the picker. Each vendor's resolution will fire
-		// `onDidChangeLanguageModels`, which re-runs `_updateModelValues` above.
-		// We additionally re-run `_updateModelValues` once everything resolves so that
-		// providers which add no new models (and therefore don't fire the change event)
-		// still get reflected in the picker.
 		const vendors = this._languageModelsService.getVendors().map(v => v.vendor);
 		this._logService.trace(`${this._options.logPrefix} Resolving all vendors: [${vendors.join(', ')}]`);
 		this._languageModelsService.selectLanguageModels({}).then(

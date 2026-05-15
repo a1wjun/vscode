@@ -141,11 +141,7 @@ export class ProductionEndpointProvider extends Disposable implements IEndpointP
 	 * selection for each family lives in the corresponding resolver
 	 * class so callers don't need to know which CAPI family backs each
 	 * purpose.
-	 *
-	 * If the user has configured a model override for the family via the
-	 * `chat.utilityModel` / `chat.utilitySmallModel` settings, this method
-	 * attempts to resolve that model first and falls back to the default
-	 * CAPI-driven resolution if the override cannot be located.
+
 	 */
 	private async _resolveUtilityFamily(family: ChatEndpointFamily): Promise<IChatEndpoint> {
 		const override = await this._resolveUtilityOverride(family);
@@ -163,9 +159,7 @@ export class ProductionEndpointProvider extends Disposable implements IEndpointP
 
 	/**
 	 * Resolves the user's `chat.utilityModel` / `chat.utilitySmallModel`
-	 * override (if any) to a concrete chat endpoint. The stored value is
-	 * encoded as `${vendor}/${id}` to be stable across UI changes and
-	 * directly compatible with `vscode.lm.selectChatModels({ vendor, id })`.
+	 * override (if any) to a concrete chat endpoint.
 	 * Returns `undefined` if no override is configured, if the value is
 	 * malformed, if no matching model is currently available, or if the
 	 * lookup throws.
@@ -180,9 +174,6 @@ export class ProductionEndpointProvider extends Disposable implements IEndpointP
 			return undefined;
 		}
 
-		// `getNonExtensionConfig<string>` only narrows the type at compile
-		// time; at runtime the value can be anything the user wrote into
-		// settings.json. Treat any non-string value as "no override".
 		const raw = this._configService.getNonExtensionConfig<unknown>(configKey);
 		if (typeof raw !== 'string' || raw.length === 0) {
 			if (raw !== undefined && typeof raw !== 'string') {
@@ -251,16 +242,6 @@ export class ProductionEndpointProvider extends Disposable implements IEndpointP
 		return this._instantiationService.createInstance(ExtensionContributedChatEndpoint, model);
 	}
 
-	/**
-	 * Emits a telemetry event the first time (per family) we successfully
-	 * apply a utility-model override. Resolution runs on every utility-alias
-	 * publish, so unguarded emission would be very noisy; we dedupe so we
-	 * emit at most once per family until the override is changed (which
-	 * clears the cache via {@link _lastOverrideTelemetryFingerprint}).
-	 * Failed/fallback resolutions are intentionally not reported. The event
-	 * carries no vendor or model identifiers — those can be user-provided
-	 * values for BYOK/custom endpoint providers.
-	 */
 	private _reportOverrideAppliedTelemetry(family: ChatEndpointFamily): void {
 		if (this._lastOverrideTelemetryFingerprint.has(family)) {
 			return;
