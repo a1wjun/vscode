@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'assert';
-import { Emitter, Event } from '../../../../../base/common/event.js';
+import { Emitter } from '../../../../../base/common/event.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { ExtensionIdentifier } from '../../../../../platform/extensions/common/extensions.js';
 import { NullLogService } from '../../../../../platform/log/common/log.js';
@@ -14,6 +14,7 @@ import { ILanguageModelChatMetadata, ILanguageModelProviderDescriptor, ILanguage
 class TestLanguageModelsService implements Partial<ILanguageModelsService> {
 	private readonly _models = new Map<string, ILanguageModelChatMetadata>();
 	private readonly _vendors: ILanguageModelProviderDescriptor[] = [];
+	private _modelCounter = 0;
 
 	private readonly _onDidChangeLanguageModels = new Emitter<string>();
 	readonly onDidChangeLanguageModels = this._onDidChangeLanguageModels.event;
@@ -26,7 +27,9 @@ class TestLanguageModelsService implements Partial<ILanguageModelsService> {
 	}
 
 	addModel(metadata: ILanguageModelChatMetadata): void {
-		this._models.set(metadata.id, metadata);
+		// Use an internal unique key so callers can register multiple models
+		// that share the same `${vendor}/${id}` (different provider groups).
+		this._models.set(`${this._modelCounter++}:${metadata.vendor}/${metadata.id}`, metadata);
 	}
 
 	getLanguageModelIds(): string[] {
@@ -165,7 +168,29 @@ suite('DefaultModelContribution', () => {
 			},
 		);
 	});
-});
 
-// Silence unused-import warning when the suite is tree-shaken in some target builds.
-void Event.None;
+	test('ambiguous vendor/id — duplicate keys (e.g. same id in two provider groups) are excluded from the picker', async () => {
+		const { arrays } = setup({
+			storageFormat: 'vendorAndId',
+			vendors: [{ vendor: 'anthropic', displayName: 'Anthropic', isDefault: false, configuration: undefined, managementCommand: undefined, when: undefined }],
+			models: [
+				// Two distinct configured groups for the same vendor expose
+				// the same model id. The setting value would be ambiguous,
+				// so neither must appear in the enum.
+				makeMetadata({ id: 'claude-haiku-4.5', name: 'Claude Haiku 4.5', vendor: 'anthropic' }),
+				makeMetadata({ id: 'claude-haiku-4.5', name: 'Claude Haiku 4.5', vendor: 'anthropic' }),
+				// A non-conflicting model from the same vendor must remain.
+				makeMetadata({ id: 'claude-sonnet-4.5', name: 'Claude Sonnet 4.5', vendor: 'anthropic' }),
+			],
+		});
+		await flush();
+
+		assert.deepStrictEqual(
+			{ ids: arrays.modelIds, labels: arrays.modelLabels },
+			{
+				ids: ['', 'anthropic/claude-sonnet-4.5'],
+				labels: ['Auto (Vendor Default)', 'Claude Sonnet 4.5 (Anthropic)'],
+			},
+		);
+	});
+});

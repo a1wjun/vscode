@@ -140,13 +140,34 @@ export abstract class DefaultModelContribution extends Disposable {
 				vendorDisplayNames.set(vendor.vendor, vendor.displayName);
 			}
 
-			this._logService.trace(`${logPrefix} Picker rebuilt: ${models.length} model(s) considered, ${supportedModels.length} included; vendors: [${Array.from(vendorDisplayNames.keys()).join(', ')}]`);
+			// When the storage format is `vendorAndId`, two models in different
+			// provider groups can collapse to the same `${vendor}/${id}` key.
+			// The setting value would then be ambiguous, so exclude every model
+			// whose key is not unique among the supported models.
+			const ambiguousVendorIds = new Set<string>();
+			if (storageFormat === 'vendorAndId') {
+				const counts = new Map<string, number>();
+				for (const model of supportedModels) {
+					const key = `${model.metadata.vendor}/${model.metadata.id}`;
+					counts.set(key, (counts.get(key) ?? 0) + 1);
+				}
+				for (const [key, count] of counts) {
+					if (count > 1) {
+						ambiguousVendorIds.add(key);
+					}
+				}
+			}
+
+			this._logService.trace(`${logPrefix} Picker rebuilt: ${models.length} model(s) considered, ${supportedModels.length} included; vendors: [${Array.from(vendorDisplayNames.keys()).join(', ')}]${ambiguousVendorIds.size ? `; excluded ambiguous: [${Array.from(ambiguousVendorIds).join(', ')}]` : ''}`);
 
 			for (const model of supportedModels) {
 				try {
 					const storedId = storageFormat === 'vendorAndId'
 						? `${model.metadata.vendor}/${model.metadata.id}`
 						: ILanguageModelChatMetadata.asQualifiedName(model.metadata);
+					if (ambiguousVendorIds.has(storedId)) {
+						continue;
+					}
 					const vendorDisplayName = vendorDisplayNames.get(model.metadata.vendor);
 					if (!vendorDisplayName) {
 						this._logService.trace(`${logPrefix} No vendor descriptor for '${model.metadata.vendor}' (model '${model.metadata.id}'); falling back to vendor id in label.`);
