@@ -5176,7 +5176,7 @@
 					},
 					"github.copilot.chat.workspace.codeSearchExternalIngest.enabled": {
 						"type": "boolean",
-						"default": false,
+						"default": true,
 						"markdownDescription": "%github.copilot.config.workspace.codeSearchExternalIngest.enabled%",
 						"tags": [
 							"advanced",
