@@ -73,6 +73,15 @@ export function createDefaultModelArrays(defaultEntryLabel?: string, defaultEntr
 }
 
 /**
+ * Shared in-flight `selectLanguageModels({})` promise per
+ * {@link ILanguageModelsService} instance, so that multiple
+ * {@link DefaultModelContribution} instances opting into
+ * `eagerVendorResolution` (e.g. utility + utility-small) share a single
+ * provider-activation pass instead of each one running it independently.
+ */
+const _resolveAllVendorsInFlight = new WeakMap<ILanguageModelsService, Promise<void>>();
+
+/**
  * Shared base class for workbench contributions that populate a dynamic enum
  * of language models for a settings picker.
  */
@@ -97,12 +106,28 @@ export abstract class DefaultModelContribution extends Disposable {
 	}
 
 	private _resolveAllVendors(): void {
-		const vendors = this._languageModelsService.getVendors().map(v => v.vendor);
-		this._logService.trace(`${this._options.logPrefix} Resolving all vendors: [${vendors.join(', ')}]`);
-		this._languageModelsService.selectLanguageModels({}).then(
-			() => this._updateModelValues(),
-			e => this._logService.error(`${this._options.logPrefix} Error resolving language models:`, e),
-		);
+		const service = this._languageModelsService;
+		let pending = _resolveAllVendorsInFlight.get(service);
+		if (!pending) {
+			const vendors = service.getVendors().map(v => v.vendor);
+			this._logService.trace(`${this._options.logPrefix} Resolving all vendors: [${vendors.join(', ')}]`);
+			const fresh: Promise<void> = service.selectLanguageModels({}).then(
+				() => undefined,
+				e => {
+					this._logService.error(`${this._options.logPrefix} Error resolving language models:`, e);
+				},
+			).finally(() => {
+				// Allow a subsequent vendor change to start a fresh resolution.
+				if (_resolveAllVendorsInFlight.get(service) === fresh) {
+					_resolveAllVendorsInFlight.delete(service);
+				}
+			});
+			_resolveAllVendorsInFlight.set(service, fresh);
+			pending = fresh;
+		} else {
+			this._logService.trace(`${this._options.logPrefix} Joining in-flight vendor resolution.`);
+		}
+		pending.then(() => this._updateModelValues());
 	}
 
 	private _updateModelValues(): void {
