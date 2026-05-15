@@ -213,6 +213,16 @@ suite('ProductionEndpointProvider — utility model overrides', () => {
 		assert.strictEqual(endpoint.model, 'copilot-utility');
 	});
 
+	test('non-string override values fall back to default and do not throw', async () => {
+		setFetcher([makeChatModel('copilot-utility')]);
+		// Users can hand-edit settings.json with arbitrary JSON; the
+		// `getNonExtensionConfig<string>` API is only a TS cast.
+		await configService.setNonExtensionConfig('chat.utilityModel', 42 as unknown as string);
+
+		const endpoint = await endpointProvider.getChatEndpoint('copilot-utility');
+		assert.strictEqual(endpoint.model, 'copilot-utility');
+	});
+
 	test('configuration change fires onDidModelsRefresh so cached endpoints get invalidated', async () => {
 		setFetcher([makeChatModel('copilot-utility')]);
 		let refreshCount = 0;

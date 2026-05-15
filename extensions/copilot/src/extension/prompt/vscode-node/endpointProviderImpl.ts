@@ -64,6 +64,16 @@ export class ProductionEndpointProvider extends Disposable implements IEndpointP
 				this._onDidModelsRefresh.fire();
 			}
 		}));
+
+		// Forward LM model-list changes from non-copilot providers as a model
+		// refresh so consumers re-resolve cached utility-alias endpoints. The
+		// copilot model fetcher's own `onDidModelsRefresh` already covers the
+		// copilot vendor; this handles BYOK overrides whose underlying
+		// provider can refresh / remove models out-of-band.
+		this._register(lm.onDidChangeChatModels(() => {
+			this._logService.trace(`[ProductionEndpointProvider] LM chat models changed; invalidating alias endpoints.`);
+			this._onDidModelsRefresh.fire();
+		}));
 	}
 
 	// NOTE: Keep in sync with `ChatConfiguration.UtilityModel` /
@@ -170,8 +180,14 @@ export class ProductionEndpointProvider extends Disposable implements IEndpointP
 			return undefined;
 		}
 
-		const raw = this._configService.getNonExtensionConfig<string>(configKey) ?? '';
-		if (!raw) {
+		// `getNonExtensionConfig<string>` only narrows the type at compile
+		// time; at runtime the value can be anything the user wrote into
+		// settings.json. Treat any non-string value as "no override".
+		const raw = this._configService.getNonExtensionConfig<unknown>(configKey);
+		if (typeof raw !== 'string' || raw.length === 0) {
+			if (raw !== undefined && typeof raw !== 'string') {
+				this._logService.warn(`[ProductionEndpointProvider] Ignoring non-string ${configKey} override of type '${typeof raw}'.`);
+			}
 			return undefined;
 		}
 
