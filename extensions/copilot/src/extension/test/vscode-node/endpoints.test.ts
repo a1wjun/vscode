@@ -5,13 +5,14 @@
 
 import assert from 'assert';
 import { SinonSandbox, createSandbox } from 'sinon';
-import { LanguageModelChat } from 'vscode';
+import { LanguageModelChat, lm } from 'vscode';
 import { CHAT_MODEL, IConfigurationService } from '../../../platform/configuration/common/configurationService';
 import { InMemoryConfigurationService } from '../../../platform/configuration/test/common/inMemoryConfigurationService';
 import { DefaultsOnlyConfigurationService } from '../../../platform/configuration/common/defaultsOnlyConfigurationService';
 import { IChatModelInformation, ICompletionModelInformation, IEmbeddingModelInformation } from '../../../platform/endpoint/common/endpointProvider';
 import { IModelMetadataFetcher } from '../../../platform/endpoint/node/modelMetadataFetcher';
 import { CopilotChatEndpoint } from '../../../platform/endpoint/node/copilotChatEndpoint';
+import { ExtensionContributedChatEndpoint } from '../../../platform/endpoint/vscode-node/extChatEndpoint';
 import { ITestingServicesAccessor } from '../../../platform/test/node/services';
 import { TokenizerType } from '../../../util/common/tokenizer';
 import { Event } from '../../../util/vs/base/common/event';
@@ -156,6 +157,7 @@ function makeChatModel(modelId: string, overrides: Partial<IChatModelInformation
 suite('ProductionEndpointProvider — utility model overrides', () => {
 	let configService: InMemoryConfigurationService;
 	let endpointProvider: ProductionEndpointProvider;
+	let sandbox: SinonSandbox;
 
 	setup(() => {
 		const collection = createExtensionTestingServices();
@@ -163,11 +165,29 @@ suite('ProductionEndpointProvider — utility model overrides', () => {
 		collection.define(IConfigurationService, configService);
 		const accessor = collection.createTestingAccessor();
 		endpointProvider = accessor.get(IInstantiationService).createInstance(ProductionEndpointProvider);
+		sandbox = createSandbox();
+	});
+
+	teardown(() => {
+		sandbox.restore();
 	});
 
 	function setFetcher(models: IChatModelInformation[]): void {
 		// @ts-expect-error — replacing private member for the test.
 		endpointProvider._modelFetcher = new CopilotMatchableModelMetadataFetcher(models);
+	}
+
+	function makeFakeLanguageModelChat(overrides: Partial<LanguageModelChat>): LanguageModelChat {
+		return {
+			id: 'fake-id',
+			vendor: 'fake-vendor',
+			name: 'fake-name',
+			family: 'fake-family',
+			version: 'fake-version',
+			maxInputTokens: 100_000,
+			capabilities: { supportsToolCalling: false, supportsImageToText: false },
+			...overrides,
+		} as LanguageModelChat;
 	}
 
 	test('no override configured — falls through to default copilot-utility resolution', async () => {
@@ -234,5 +254,45 @@ suite('ProductionEndpointProvider — utility model overrides', () => {
 		} finally {
 			sub.dispose();
 		}
+	});
+
+	test('non-copilot vendor override resolves to an extension-contributed endpoint', async () => {
+		setFetcher([makeChatModel('copilot-utility')]);
+		const fakeModel = makeFakeLanguageModelChat({ vendor: 'anthropic', id: 'claude-haiku-4.5' });
+		sandbox.stub(lm, 'selectChatModels').resolves([fakeModel]);
+		await configService.setNonExtensionConfig('chat.utilityModel', 'anthropic/claude-haiku-4.5');
+
+		const endpoint = await endpointProvider.getChatEndpoint('copilot-utility');
+		assert.ok(endpoint instanceof ExtensionContributedChatEndpoint);
+		assert.strictEqual(endpoint.model, 'claude-haiku-4.5');
+	});
+
+	test('non-copilot vendor override falls back when lm.selectChatModels returns no matches', async () => {
+		setFetcher([makeChatModel('copilot-utility')]);
+		sandbox.stub(lm, 'selectChatModels').resolves([]);
+		await configService.setNonExtensionConfig('chat.utilityModel', 'anthropic/claude-haiku-4.5');
+
+		const endpoint = await endpointProvider.getChatEndpoint('copilot-utility');
+		assert.strictEqual(endpoint.model, 'copilot-utility');
+	});
+
+	test('non-copilot vendor override falls back when lm.selectChatModels returns multiple matches (ambiguous)', async () => {
+		setFetcher([makeChatModel('copilot-utility')]);
+		const m1 = makeFakeLanguageModelChat({ vendor: 'anthropic', id: 'claude-haiku-4.5' });
+		const m2 = makeFakeLanguageModelChat({ vendor: 'anthropic', id: 'claude-haiku-4.5' });
+		sandbox.stub(lm, 'selectChatModels').resolves([m1, m2]);
+		await configService.setNonExtensionConfig('chat.utilityModel', 'anthropic/claude-haiku-4.5');
+
+		const endpoint = await endpointProvider.getChatEndpoint('copilot-utility');
+		assert.strictEqual(endpoint.model, 'copilot-utility');
+	});
+
+	test('non-copilot vendor override falls back when lm.selectChatModels throws', async () => {
+		setFetcher([makeChatModel('copilot-utility')]);
+		sandbox.stub(lm, 'selectChatModels').rejects(new Error('boom'));
+		await configService.setNonExtensionConfig('chat.utilityModel', 'anthropic/claude-haiku-4.5');
+
+		const endpoint = await endpointProvider.getChatEndpoint('copilot-utility');
+		assert.strictEqual(endpoint.model, 'copilot-utility');
 	});
 });
