@@ -37,11 +37,10 @@ export interface DefaultModelContributionOptions {
 	 */
 	readonly storageFormat?: 'qualifiedName' | 'vendorAndId';
 	/**
-	 * When `true`, eagerly call `selectLanguageModels({})` at construction
-	 * time and on `onDidChangeLanguageModelVendors` to force every registered
-	 * provider extension to resolve its models. This ensures models from
-	 * providers that no other consumer has touched yet (e.g. BYOK) surface in
-	 * the picker at the cost of activating those provider extensions.
+	 * When `true`, eagerly resolve every visible vendor at construction time
+	 * and on `onDidChangeLanguageModelVendors`. This ensures models from
+	 * visible providers that no other consumer has touched yet (e.g. BYOK)
+	 * surface in the picker at the cost of activating those provider extensions.
 	 *
 	 * Defaults to `false` so contributions that run during startup
 	 * (`BlockRestore`) don't pay that activation cost.
@@ -78,7 +77,7 @@ interface ResolveAllVendorsState {
 }
 
 /**
- * Shared in-flight `selectLanguageModels({})` state per
+ * Shared in-flight eager vendor resolution state per
  * {@link ILanguageModelsService} instance, so that multiple
  * {@link DefaultModelContribution} instances opting into
  * `eagerVendorResolution` (e.g. utility + utility-small) share provider
@@ -134,7 +133,9 @@ export abstract class DefaultModelContribution extends Disposable {
 				const vendors = service.getVendors().map(v => v.vendor);
 				this._logService.trace(`${this._options.logPrefix} Resolving all vendors: [${vendors.join(', ')}]`);
 				try {
-					await service.selectLanguageModels({});
+					for (const vendor of vendors) {
+						await service.selectLanguageModels({ vendor });
+					}
 				} catch (e) {
 					this._logService.error(`${this._options.logPrefix} Error resolving language models:`, e);
 				}
@@ -177,7 +178,12 @@ export abstract class DefaultModelContribution extends Disposable {
 				}
 			}
 
+			const vendors = this._languageModelsService.getVendors();
+			const visibleVendors = new Set(vendors.map(vendor => vendor.vendor));
 			const supportedModels = models.filter(model => {
+				if (!visibleVendors.has(model.metadata.vendor)) {
+					return false;
+				}
 				if (model.metadata?.isUserSelectable === false) {
 					return false;
 				}
@@ -198,7 +204,7 @@ export abstract class DefaultModelContribution extends Disposable {
 			// human-readable provider name (e.g. "Copilot") instead of the
 			// vendor id (e.g. "copilot") which is what gets stored.
 			const vendorDisplayNames = new Map<string, string>();
-			for (const vendor of this._languageModelsService.getVendors()) {
+			for (const vendor of vendors) {
 				vendorDisplayNames.set(vendor.vendor, vendor.displayName);
 			}
 

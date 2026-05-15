@@ -97,7 +97,7 @@ class TestContribution extends DefaultModelContribution {
 				storageFormat,
 				// Mirror the utility contribution which opts in; the existing
 				// tests assert the picker contents after `flush()` waits on
-				// the eager `selectLanguageModels({})` promise.
+				// eager vendor resolution.
 				eagerVendorResolution: true,
 			},
 			languageModelsService,
@@ -122,7 +122,7 @@ function makeMetadata(overrides: Partial<ILanguageModelChatMetadata> & Pick<ILan
 
 /**
  * Wait for all microtasks to settle so that the constructor's
- * `selectLanguageModels({}).then(...)` has run.
+ * eager vendor resolution continuations have run.
  */
 async function flush(): Promise<void> {
 	await new Promise<void>(r => queueMicrotask(r));
@@ -201,6 +201,26 @@ suite('DefaultModelContribution', () => {
 		);
 	});
 
+	test('hidden vendor cache entries are excluded from the picker', async () => {
+		const { arrays } = setup({
+			storageFormat: 'vendorAndId',
+			vendors: [{ vendor: 'copilot', displayName: 'Copilot', isDefault: true, configuration: undefined, managementCommand: undefined, when: undefined }],
+			models: [
+				makeMetadata({ id: 'gpt-4o-mini', name: 'GPT 4o mini', vendor: 'copilot' }),
+				makeMetadata({ id: 'hidden-model', name: 'Hidden Model', vendor: 'hidden-vendor' }),
+			],
+		});
+		await flush();
+
+		assert.deepStrictEqual(
+			{ ids: arrays.modelIds, labels: arrays.modelLabels },
+			{
+				ids: ['', 'copilot/gpt-4o-mini'],
+				labels: ['Auto (Vendor Default)', 'GPT 4o mini (Copilot)'],
+			},
+		);
+	});
+
 	test('ambiguous vendor/id — duplicate keys (e.g. same id in two provider groups) are excluded from the picker', async () => {
 		const { arrays } = setup({
 			storageFormat: 'vendorAndId',
@@ -229,6 +249,7 @@ suite('DefaultModelContribution', () => {
 	test('vendor changes during eager vendor resolution trigger a follow-up resolution pass', async () => {
 		const service = new TestLanguageModelsService();
 		store.add({ dispose: () => service.dispose() });
+		service.addVendor({ vendor: 'copilot', displayName: 'Copilot', isDefault: true, configuration: undefined, managementCommand: undefined, when: undefined });
 		const firstResolution = service.deferNextSelectLanguageModels();
 		const arrays = createDefaultModelArrays();
 		store.add(new TestContribution(arrays, 'vendorAndId', service as unknown as ILanguageModelsService));
@@ -242,7 +263,7 @@ suite('DefaultModelContribution', () => {
 		assert.deepStrictEqual(
 			{ selectCalls: service.selectLanguageModelsCalls, ids: arrays.modelIds, labels: arrays.modelLabels },
 			{
-				selectCalls: 2,
+				selectCalls: 3,
 				ids: ['', 'anthropic/claude-haiku-4.5'],
 				labels: ['Auto (Vendor Default)', 'Claude Haiku 4.5 (Anthropic)'],
 			},
