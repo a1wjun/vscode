@@ -41,7 +41,6 @@ export class UtilityModelContribution extends DefaultModelContribution {
 			configSectionId: 'chatSidebar',
 			logPrefix: '[UtilityModel]',
 			storageFormat: 'vendorAndId',
-			eagerVendorResolution: true,
 			defaultEntryLabel,
 			defaultEntryDescription,
 		}, languageModelsService, logService);
@@ -70,16 +69,11 @@ export class UtilitySmallModelContribution extends DefaultModelContribution {
 			configSectionId: 'chatSidebar',
 			logPrefix: '[UtilitySmallModel]',
 			storageFormat: 'vendorAndId',
-			eagerVendorResolution: true,
 			defaultEntryLabel,
 			defaultEntryDescription,
 		}, languageModelsService, logService);
 	}
 }
 
-// Use `Eventually` so that resolving language model vendors (which can
-// activate provider extensions) does not block workbench startup. These
-// contributions only populate enum values for two settings; nothing about
-// the user-facing UI requires them to be ready before the editor shows.
-registerWorkbenchContribution2(UtilityModelContribution.ID, UtilityModelContribution, WorkbenchPhase.Eventually);
-registerWorkbenchContribution2(UtilitySmallModelContribution.ID, UtilitySmallModelContribution, WorkbenchPhase.Eventually);
+registerWorkbenchContribution2(UtilityModelContribution.ID, UtilityModelContribution, WorkbenchPhase.BlockRestore);
+registerWorkbenchContribution2(UtilitySmallModelContribution.ID, UtilitySmallModelContribution, WorkbenchPhase.BlockRestore);

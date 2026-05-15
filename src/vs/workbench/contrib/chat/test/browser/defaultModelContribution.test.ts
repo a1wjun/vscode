@@ -4,7 +4,6 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'assert';
-import { DeferredPromise } from '../../../../../base/common/async.js';
 import { Emitter } from '../../../../../base/common/event.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { ExtensionIdentifier } from '../../../../../platform/extensions/common/extensions.js';
@@ -14,41 +13,20 @@ import { ILanguageModelChatMetadata, ILanguageModelProviderDescriptor, ILanguage
 
 class TestLanguageModelsService implements Partial<ILanguageModelsService> {
 	private readonly _models = new Map<string, ILanguageModelChatMetadata>();
-	private readonly _modelsPendingResolution: ILanguageModelChatMetadata[] = [];
 	private readonly _vendors: ILanguageModelProviderDescriptor[] = [];
-	private readonly _selectLanguageModelsGates: DeferredPromise<void>[] = [];
 	private _modelCounter = 0;
-	private _selectLanguageModelsCalls = 0;
 
 	private readonly _onDidChangeLanguageModels = new Emitter<string>();
 	readonly onDidChangeLanguageModels = this._onDidChangeLanguageModels.event;
 
-	private readonly _onDidChangeLanguageModelVendors = new Emitter<readonly string[]>();
-	readonly onDidChangeLanguageModelVendors = this._onDidChangeLanguageModelVendors.event;
-
 	addVendor(vendor: ILanguageModelProviderDescriptor): void {
 		this._vendors.push(vendor);
-		this._onDidChangeLanguageModelVendors.fire([vendor.vendor]);
 	}
 
 	addModel(metadata: ILanguageModelChatMetadata): void {
 		// Use an internal unique key so callers can register multiple models
 		// that share the same `${vendor}/${id}` (different provider groups).
 		this._models.set(`${this._modelCounter++}:${metadata.vendor}/${metadata.id}`, metadata);
-	}
-
-	addModelAfterResolution(metadata: ILanguageModelChatMetadata): void {
-		this._modelsPendingResolution.push(metadata);
-	}
-
-	deferNextSelectLanguageModels(): DeferredPromise<void> {
-		const gate = new DeferredPromise<void>();
-		this._selectLanguageModelsGates.push(gate);
-		return gate;
-	}
-
-	get selectLanguageModelsCalls(): number {
-		return this._selectLanguageModelsCalls;
 	}
 
 	getLanguageModelIds(): string[] {
@@ -63,22 +41,8 @@ class TestLanguageModelsService implements Partial<ILanguageModelsService> {
 		return this._vendors;
 	}
 
-	async selectLanguageModels(): Promise<string[]> {
-		this._selectLanguageModelsCalls++;
-		const modelsPendingResolution = this._modelsPendingResolution.splice(0);
-		const gate = this._selectLanguageModelsGates.shift();
-		if (gate) {
-			await gate.p;
-		}
-		for (const model of modelsPendingResolution) {
-			this.addModel(model);
-		}
-		return Array.from(this._models.keys());
-	}
-
 	dispose(): void {
 		this._onDidChangeLanguageModels.dispose();
-		this._onDidChangeLanguageModelVendors.dispose();
 	}
 }
 
@@ -95,10 +59,6 @@ class TestContribution extends DefaultModelContribution {
 				configSectionId: undefined,
 				logPrefix: '[Test]',
 				storageFormat,
-				// Mirror the utility contribution which opts in; the existing
-				// tests assert the picker contents after `flush()` waits on
-				// eager vendor resolution.
-				eagerVendorResolution: true,
 			},
 			languageModelsService,
 			new NullLogService(),
@@ -120,15 +80,6 @@ function makeMetadata(overrides: Partial<ILanguageModelChatMetadata> & Pick<ILan
 	} satisfies ILanguageModelChatMetadata;
 }
 
-/**
- * Wait for all microtasks to settle so that the constructor's
- * eager vendor resolution continuations have run.
- */
-async function flush(): Promise<void> {
-	await new Promise<void>(r => queueMicrotask(r));
-	await new Promise<void>(r => queueMicrotask(r));
-}
-
 suite('DefaultModelContribution', () => {
 	const store = ensureNoDisposablesAreLeakedInTestSuite();
 
@@ -148,9 +99,8 @@ suite('DefaultModelContribution', () => {
 		return { arrays, contribution, service };
 	}
 
-	test('default state — no models registered yields only the empty/auto entry', async () => {
+	test('default state — no models registered yields only the empty/auto entry', () => {
 		const { arrays } = setup();
-		await flush();
 
 		assert.deepStrictEqual(
 			{ ids: arrays.modelIds, labels: arrays.modelLabels },
@@ -158,14 +108,12 @@ suite('DefaultModelContribution', () => {
 		);
 	});
 
-	test('copilot vendor model — stored as vendor/id with vendor display name in the label', async () => {
+	test('copilot vendor model — stored as vendor/id with vendor display name in the label', () => {
 		const { arrays } = setup({
 			storageFormat: 'vendorAndId',
 			vendors: [{ vendor: 'copilot', displayName: 'Copilot', isDefault: true, configuration: undefined, managementCommand: undefined, when: undefined }],
 			models: [makeMetadata({ id: 'gpt-4o-mini', name: 'GPT 4o mini', vendor: 'copilot' })],
 		});
-		await flush();
-
 		assert.deepStrictEqual(
 			{ ids: arrays.modelIds, labels: arrays.modelLabels },
 			{
@@ -175,7 +123,7 @@ suite('DefaultModelContribution', () => {
 		);
 	});
 
-	test('third-party (BYOK) vendor model — stored as vendor/id with provider display name', async () => {
+	test('third-party (BYOK) vendor model — stored as vendor/id with provider display name', () => {
 		const { arrays } = setup({
 			storageFormat: 'vendorAndId',
 			vendors: [
@@ -190,8 +138,6 @@ suite('DefaultModelContribution', () => {
 				makeMetadata({ id: 'copilot-utility', name: 'Utility', vendor: 'copilot', isUserSelectable: false }),
 			],
 		});
-		await flush();
-
 		assert.deepStrictEqual(
 			{ ids: arrays.modelIds, labels: arrays.modelLabels },
 			{
@@ -201,7 +147,7 @@ suite('DefaultModelContribution', () => {
 		);
 	});
 
-	test('hidden vendor cache entries are excluded from the picker', async () => {
+	test('hidden vendor cache entries are excluded from the picker', () => {
 		const { arrays } = setup({
 			storageFormat: 'vendorAndId',
 			vendors: [{ vendor: 'copilot', displayName: 'Copilot', isDefault: true, configuration: undefined, managementCommand: undefined, when: undefined }],
@@ -210,8 +156,6 @@ suite('DefaultModelContribution', () => {
 				makeMetadata({ id: 'hidden-model', name: 'Hidden Model', vendor: 'hidden-vendor' }),
 			],
 		});
-		await flush();
-
 		assert.deepStrictEqual(
 			{ ids: arrays.modelIds, labels: arrays.modelLabels },
 			{
@@ -221,7 +165,7 @@ suite('DefaultModelContribution', () => {
 		);
 	});
 
-	test('ambiguous vendor/id — duplicate keys (e.g. same id in two provider groups) are excluded from the picker', async () => {
+	test('ambiguous vendor/id — duplicate keys (e.g. same id in two provider groups) are excluded from the picker', () => {
 		const { arrays } = setup({
 			storageFormat: 'vendorAndId',
 			vendors: [{ vendor: 'anthropic', displayName: 'Anthropic', isDefault: false, configuration: undefined, managementCommand: undefined, when: undefined }],
@@ -235,37 +179,11 @@ suite('DefaultModelContribution', () => {
 				makeMetadata({ id: 'claude-sonnet-4.5', name: 'Claude Sonnet 4.5', vendor: 'anthropic' }),
 			],
 		});
-		await flush();
-
 		assert.deepStrictEqual(
 			{ ids: arrays.modelIds, labels: arrays.modelLabels },
 			{
 				ids: ['', 'anthropic/claude-sonnet-4.5'],
 				labels: ['Auto (Vendor Default)', 'Claude Sonnet 4.5 (Anthropic)'],
-			},
-		);
-	});
-
-	test('vendor changes during eager vendor resolution trigger a follow-up resolution pass', async () => {
-		const service = new TestLanguageModelsService();
-		store.add({ dispose: () => service.dispose() });
-		service.addVendor({ vendor: 'copilot', displayName: 'Copilot', isDefault: true, configuration: undefined, managementCommand: undefined, when: undefined });
-		const firstResolution = service.deferNextSelectLanguageModels();
-		const arrays = createDefaultModelArrays();
-		store.add(new TestContribution(arrays, 'vendorAndId', service as unknown as ILanguageModelsService));
-
-		service.addVendor({ vendor: 'anthropic', displayName: 'Anthropic', isDefault: false, configuration: undefined, managementCommand: undefined, when: undefined });
-		service.addModelAfterResolution(makeMetadata({ id: 'claude-haiku-4.5', name: 'Claude Haiku 4.5', vendor: 'anthropic' }));
-		firstResolution.complete(undefined);
-		await flush();
-		await flush();
-
-		assert.deepStrictEqual(
-			{ selectCalls: service.selectLanguageModelsCalls, ids: arrays.modelIds, labels: arrays.modelLabels },
-			{
-				selectCalls: 3,
-				ids: ['', 'anthropic/claude-haiku-4.5'],
-				labels: ['Auto (Vendor Default)', 'Claude Haiku 4.5 (Anthropic)'],
 			},
 		);
 	});

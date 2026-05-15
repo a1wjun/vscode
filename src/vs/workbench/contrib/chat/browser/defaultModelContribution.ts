@@ -37,16 +37,6 @@ export interface DefaultModelContributionOptions {
 	 */
 	readonly storageFormat?: 'qualifiedName' | 'vendorAndId';
 	/**
-	 * When `true`, eagerly resolve every visible vendor at construction time
-	 * and on `onDidChangeLanguageModelVendors`. This ensures models from
-	 * visible providers that no other consumer has touched yet (e.g. BYOK)
-	 * surface in the picker at the cost of activating those provider extensions.
-	 *
-	 * Defaults to `false` so contributions that run during startup
-	 * (`BlockRestore`) don't pay that activation cost.
-	 */
-	readonly eagerVendorResolution?: boolean;
-	/**
 	 * Optional override for the label of the default ("empty") enum entry.
 	 * When omitted, defaults to `"Auto (Vendor Default)"`.
 	 */
@@ -71,21 +61,6 @@ export function createDefaultModelArrays(defaultEntryLabel?: string, defaultEntr
 	};
 }
 
-interface ResolveAllVendorsState {
-	promise: Promise<void>;
-	needsAnotherPass: boolean;
-}
-
-/**
- * Shared in-flight eager vendor resolution state per
- * {@link ILanguageModelsService} instance, so that multiple
- * {@link DefaultModelContribution} instances opting into
- * `eagerVendorResolution` (e.g. utility + utility-small) share provider
- * activation passes. Vendor changes that arrive mid-pass are coalesced into
- * a follow-up pass before consumers refresh their model arrays.
- */
-const _resolveAllVendorsInFlight = new WeakMap<ILanguageModelsService, ResolveAllVendorsState>();
-
 /**
  * Shared base class for workbench contributions that populate a dynamic enum
  * of language models for a settings picker.
@@ -100,51 +75,7 @@ export abstract class DefaultModelContribution extends Disposable {
 	) {
 		super();
 		this._register(_languageModelsService.onDidChangeLanguageModels(() => this._updateModelValues()));
-		if (_options.eagerVendorResolution) {
-			// New vendors (e.g. BYOK) may register after this contribution has already started.
-			this._register(_languageModelsService.onDidChangeLanguageModelVendors(() => this._resolveAllVendors(true)));
-		}
 		this._updateModelValues();
-		if (_options.eagerVendorResolution) {
-			this._resolveAllVendors();
-		}
-	}
-
-	private _resolveAllVendors(vendorsChanged = false): void {
-		const service = this._languageModelsService;
-		let state = _resolveAllVendorsInFlight.get(service);
-		if (!state) {
-			state = { promise: Promise.resolve(), needsAnotherPass: false };
-			_resolveAllVendorsInFlight.set(service, state);
-			state.promise = this._resolveAllVendorsUntilSettled(service, state);
-		} else {
-			if (vendorsChanged) {
-				state.needsAnotherPass = true;
-			}
-			this._logService.trace(`${this._options.logPrefix} Joining in-flight vendor resolution.`);
-		}
-		state.promise.then(() => this._updateModelValues());
-	}
-
-	private async _resolveAllVendorsUntilSettled(service: ILanguageModelsService, state: ResolveAllVendorsState): Promise<void> {
-		try {
-			do {
-				state.needsAnotherPass = false;
-				const vendors = service.getVendors().map(v => v.vendor);
-				this._logService.trace(`${this._options.logPrefix} Resolving all vendors: [${vendors.join(', ')}]`);
-				try {
-					for (const vendor of vendors) {
-						await service.selectLanguageModels({ vendor });
-					}
-				} catch (e) {
-					this._logService.error(`${this._options.logPrefix} Error resolving language models:`, e);
-				}
-			} while (state.needsAnotherPass);
-		} finally {
-			if (_resolveAllVendorsInFlight.get(service) === state) {
-				_resolveAllVendorsInFlight.delete(service);
-			}
-		}
 	}
 
 	private _updateModelValues(): void {
