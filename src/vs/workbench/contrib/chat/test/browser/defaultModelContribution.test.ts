@@ -67,6 +67,10 @@ class TestContribution extends DefaultModelContribution {
 				configSectionId: undefined,
 				logPrefix: '[Test]',
 				storageFormat,
+				// Mirror the utility contribution which opts in; the existing
+				// tests assert the picker contents after `flush()` waits on
+				// the eager `selectLanguageModels({})` promise.
+				eagerVendorResolution: true,
 			},
 			languageModelsService,
 			new NullLogService(),

@@ -36,17 +36,47 @@ export interface DefaultModelContributionOptions {
 	 *   fields, directly usable with `vscode.lm.selectChatModels`.
 	 */
 	readonly storageFormat?: 'qualifiedName' | 'vendorAndId';
+	/**
+	 * When `true`, eagerly call `selectLanguageModels({})` at construction
+	 * time and on `onDidChangeLanguageModelVendors` to force every registered
+	 * provider extension to resolve its models. This ensures models from
+	 * providers that no other consumer has touched yet (e.g. BYOK Anthropic
+	 * / OpenAI) surface in the picker — at the cost of activating those
+	 * provider extensions.
+	 *
+	 * Defaults to `false` so contributions that run during startup
+	 * (`BlockRestore`) don't pay that activation cost. Contributions that
+	 * register at later phases (e.g. `Eventually`) can opt in.
+	 */
+	readonly eagerVendorResolution?: boolean;
+	/**
+	 * Optional override for the label of the default ("empty") enum entry.
+	 * When omitted, defaults to `"Auto (Vendor Default)"`. Provide a
+	 * setting-specific copy when the empty value does not represent a
+	 * vendor-default (e.g. `chat.utilityModel` falls back to the built-in
+	 * utility family default, not a vendor default).
+	 */
+	readonly defaultEntryLabel?: string;
+	/**
+	 * Optional override for the description of the default ("empty") enum
+	 * entry. See {@link defaultEntryLabel}.
+	 */
+	readonly defaultEntryDescription?: string;
 }
 
 /**
  * Creates the initial static arrays used by configuration registration code.
  * The returned arrays are mutated in-place by {@link DefaultModelContribution}.
+ *
+ * `defaultEntryLabel` / `defaultEntryDescription` override the copy used for
+ * the empty/default enum entry. Pass setting-specific copy when the empty
+ * value does not represent a vendor-default.
  */
-export function createDefaultModelArrays(): DefaultModelArrays {
+export function createDefaultModelArrays(defaultEntryLabel?: string, defaultEntryDescription?: string): DefaultModelArrays {
 	return {
 		modelIds: [''],
-		modelLabels: [localize('defaultModel', 'Auto (Vendor Default)')],
-		modelDescriptions: [localize('defaultModelDescription', "Use the vendor's default model")],
+		modelLabels: [defaultEntryLabel ?? localize('defaultModel', 'Auto (Vendor Default)')],
+		modelDescriptions: [defaultEntryDescription ?? localize('defaultModelDescription', "Use the vendor's default model")],
 	};
 }
 
@@ -64,13 +94,17 @@ export abstract class DefaultModelContribution extends Disposable {
 	) {
 		super();
 		this._register(_languageModelsService.onDidChangeLanguageModels(() => this._updateModelValues()));
-		// New vendors (e.g. BYOK Anthropic) may register after this contribution
-		// has already started. Re-trigger resolution so their models surface in
-		// the picker too — `selectLanguageModels({})` only resolves vendors that
-		// were registered at call time.
-		this._register(_languageModelsService.onDidChangeLanguageModelVendors(() => this._resolveAllVendors()));
+		if (_options.eagerVendorResolution) {
+			// New vendors (e.g. BYOK Anthropic) may register after this contribution
+			// has already started. Re-trigger resolution so their models surface in
+			// the picker too — `selectLanguageModels({})` only resolves vendors that
+			// were registered at call time.
+			this._register(_languageModelsService.onDidChangeLanguageModelVendors(() => this._resolveAllVendors()));
+		}
 		this._updateModelValues();
-		this._resolveAllVendors();
+		if (_options.eagerVendorResolution) {
+			this._resolveAllVendors();
+		}
 	}
 
 	private _resolveAllVendors(): void {
@@ -91,7 +125,7 @@ export abstract class DefaultModelContribution extends Disposable {
 
 	private _updateModelValues(): void {
 		const { modelIds, modelLabels, modelDescriptions } = this._arrays;
-		const { configKey, configSectionId, logPrefix, filter, storageFormat } = this._options;
+		const { configKey, configSectionId, logPrefix, filter, storageFormat, defaultEntryLabel, defaultEntryDescription } = this._options;
 
 		try {
 			// Clear arrays
@@ -101,8 +135,8 @@ export abstract class DefaultModelContribution extends Disposable {
 
 			// Add default/empty option
 			modelIds.push('');
-			modelLabels.push(localize('defaultModel', 'Auto (Vendor Default)'));
-			modelDescriptions.push(localize('defaultModelDescription', "Use the vendor's default model"));
+			modelLabels.push(defaultEntryLabel ?? localize('defaultModel', 'Auto (Vendor Default)'));
+			modelDescriptions.push(defaultEntryDescription ?? localize('defaultModelDescription', "Use the vendor's default model"));
 
 			const models: { identifier: string; metadata: ILanguageModelChatMetadata }[] = [];
 			const allModelIds = this._languageModelsService.getLanguageModelIds();

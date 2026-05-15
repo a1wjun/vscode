@@ -4,13 +4,21 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { ILogService } from '../../../../platform/log/common/log.js';
+import { localize } from '../../../../nls.js';
 import { registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { ChatConfiguration } from '../common/constants.js';
 import { ILanguageModelsService } from '../common/languageModels.js';
 import { createDefaultModelArrays, DefaultModelContribution } from './defaultModelContribution.js';
 
-const utilityArrays = createDefaultModelArrays();
-const utilitySmallArrays = createDefaultModelArrays();
+// The empty value for these settings means "use the built-in utility-family
+// default" (i.e. whatever the copilot-utility / copilot-utility-small family
+// resolves to via CAPI), not a vendor-specific default. Use setting-specific
+// copy so the Settings UI doesn't say "Auto (Vendor Default)".
+const defaultEntryLabel = localize('chat.utilityModel.defaultEntry.label', 'Default');
+const defaultEntryDescription = localize('chat.utilityModel.defaultEntry.description', "Use the built-in default utility model");
+
+const utilityArrays = createDefaultModelArrays(defaultEntryLabel, defaultEntryDescription);
+const utilitySmallArrays = createDefaultModelArrays(defaultEntryLabel, defaultEntryDescription);
 
 /**
  * Populates the dynamic enum of language models for the `chat.utilityModel`
@@ -33,6 +41,9 @@ export class UtilityModelContribution extends DefaultModelContribution {
 			configSectionId: 'chatSidebar',
 			logPrefix: '[UtilityModel]',
 			storageFormat: 'vendorAndId',
+			eagerVendorResolution: true,
+			defaultEntryLabel,
+			defaultEntryDescription,
 		}, languageModelsService, logService);
 	}
 }
@@ -59,6 +70,9 @@ export class UtilitySmallModelContribution extends DefaultModelContribution {
 			configSectionId: 'chatSidebar',
 			logPrefix: '[UtilitySmallModel]',
 			storageFormat: 'vendorAndId',
+			eagerVendorResolution: true,
+			defaultEntryLabel,
+			defaultEntryDescription,
 		}, languageModelsService, logService);
 	}
 }
