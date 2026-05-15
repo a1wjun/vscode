@@ -18,6 +18,7 @@ import { encodeStatefulMarker } from '../../../platform/endpoint/common/stateful
 import { isAnthropicFamily, isGeminiFamily } from '../../../platform/endpoint/common/chatModelCapabilities';
 import { AutoChatEndpoint } from '../../../platform/endpoint/node/autoChatEndpoint';
 import { IAutomodeService } from '../../../platform/endpoint/node/automodeService';
+import { CopilotChatEndpoint } from '../../../platform/endpoint/node/copilotChatEndpoint';
 import { IEnvService, isScenarioAutomation } from '../../../platform/env/common/envService';
 import { IVSCodeExtensionContext } from '../../../platform/extContext/common/extensionContext';
 import { IOctoKitService } from '../../../platform/github/common/githubService';
@@ -156,6 +157,62 @@ function buildConfigurationSchema(endpoint: IChatEndpoint): { configurationSchem
 	}
 
 	return { configurationSchema: { properties } };
+}
+
+/**
+ * Builds the {@link vscode.LanguageModelChatInformation} entry that publishes a
+ * utility-family alias (e.g. `copilot-utility-small`) under the copilot vendor.
+ *
+ * When `isCopilotProviderEndpoint` is `true` and a matching entry exists in
+ * {@link models}, that entry is cloned so the alias inherits provider-specific
+ * metadata. Otherwise — most commonly because the user configured a BYOK
+ * override — a minimal entry is synthesized from the endpoint, and
+ * `maxInputTokens` is reduced by both `baseCount` and
+ * {@link BaseTokensPerCompletion} to match what the regular model entries
+ * report.
+ *
+ * Callers must compute `isCopilotProviderEndpoint` (typically via
+ * `endpoint instanceof CopilotChatEndpoint`); matching by `endpoint.model`
+ * alone would misidentify a BYOK model whose id collides with a copilot model
+ * id (e.g. `gpt-4o`).
+ */
+export function buildUtilityAliasModelInfo(
+	family: ChatEndpointFamily,
+	endpoint: IChatEndpoint,
+	isCopilotProviderEndpoint: boolean,
+	models: readonly vscode.LanguageModelChatInformation[],
+	baseCount: number,
+): { info: vscode.LanguageModelChatInformation; synthesized: boolean } {
+	const base = isCopilotProviderEndpoint ? models.find(m => m.id === endpoint.model) : undefined;
+	if (base) {
+		return {
+			synthesized: false,
+			info: {
+				...base,
+				id: family,
+				family,
+				isUserSelectable: false,
+				isDefault: false,
+			},
+		};
+	}
+	return {
+		synthesized: true,
+		info: {
+			id: family,
+			name: endpoint.name,
+			family,
+			version: endpoint.version,
+			maxInputTokens: endpoint.modelMaxPromptTokens - baseCount - BaseTokensPerCompletion,
+			maxOutputTokens: endpoint.maxOutputTokens,
+			isUserSelectable: false,
+			isDefault: false,
+			capabilities: {
+				toolCalling: endpoint.supportsToolCalls,
+				imageInput: endpoint.supportsVision,
+			},
+		},
+	};
 }
 
 export class LanguageModelAccess extends Disposable implements IExtensionContribution {
@@ -360,39 +417,10 @@ export class LanguageModelAccess extends Disposable implements IExtensionContrib
 				continue;
 			}
 			this._utilityAliasEndpoints.set(family, endpoint);
-			// When the alias points at a model surfaced by this provider
-			// (vendor `copilot`), clone the existing entry so the alias
-			// keeps any provider-specific metadata. When it resolves to
-			// a model from another provider (e.g. a BYOK override), build
-			// a minimal entry directly from the endpoint so the alias is
-			// still discoverable under the `copilot` vendor.
-			const base = models.find(m => m.id === endpoint.model);
-			if (base) {
-				this._logService.trace(`[LanguageModelAccess] Publishing alias '${family}' -> copilot/${endpoint.model} (cloned).`);
-				models.push({
-					...base,
-					id: family,
-					family,
-					isUserSelectable: false,
-					isDefault: false,
-				});
-			} else {
-				this._logService.trace(`[LanguageModelAccess] Publishing alias '${family}' -> ${endpoint.model} (synthesized; not in copilot model list — likely a BYOK override).`);
-				models.push({
-					id: family,
-					name: endpoint.name,
-					family,
-					version: endpoint.version,
-					maxInputTokens: endpoint.modelMaxPromptTokens,
-					maxOutputTokens: endpoint.maxOutputTokens,
-					isUserSelectable: false,
-					isDefault: false,
-					capabilities: {
-						toolCalling: endpoint.supportsToolCalls,
-						imageInput: endpoint.supportsVision,
-					},
-				});
-			}
+			const baseCount = await this._promptBaseCountCache.getBaseCount(endpoint);
+			const aliasInfo = buildUtilityAliasModelInfo(family, endpoint, endpoint instanceof CopilotChatEndpoint, models, baseCount);
+			this._logService.trace(`[LanguageModelAccess] Publishing alias '${family}' -> ${endpoint.model} (${aliasInfo.synthesized ? 'synthesized; not surfaced by this copilot provider — likely a BYOK override' : 'cloned'}).`);
+			models.push(aliasInfo.info);
 		}
 	}
 

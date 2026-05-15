@@ -16,7 +16,7 @@ import { ITestingServicesAccessor } from '../../../../platform/test/node/service
 import { CancellationToken } from '../../../../util/vs/base/common/cancellation';
 import { IInstantiationService } from '../../../../util/vs/platform/instantiation/common/instantiation';
 import { createExtensionTestingServices } from '../../../test/vscode-node/services';
-import { CopilotLanguageModelWrapper } from '../languageModelAccess';
+import { buildUtilityAliasModelInfo, CopilotLanguageModelWrapper } from '../languageModelAccess';
 
 
 suite('CopilotLanguageModelWrapper', () => {
@@ -133,5 +133,93 @@ suite('CopilotLanguageModelWrapper', () => {
 			const decoded = JSON.parse(new TextDecoder().decode(usagePart.data));
 			assert.deepStrictEqual(decoded, expectedUsage);
 		});
+	});
+});
+
+suite('buildUtilityAliasModelInfo', () => {
+
+	function makeEndpoint(overrides: Partial<IChatEndpoint>): IChatEndpoint {
+		return {
+			model: 'gpt-4o-mini',
+			name: 'GPT 4o mini',
+			version: '2024-07-18',
+			modelMaxPromptTokens: 128_000,
+			maxOutputTokens: 4_096,
+			supportsToolCalls: true,
+			supportsVision: false,
+			...overrides,
+		} as IChatEndpoint;
+	}
+
+	function makeBaseModelInfo(overrides: Partial<vscode.LanguageModelChatInformation> & Pick<vscode.LanguageModelChatInformation, 'id'>): vscode.LanguageModelChatInformation {
+		return {
+			name: 'Cloned Display Name',
+			family: 'gpt-4o-mini',
+			version: '2024-07-18',
+			maxInputTokens: 100_000,
+			maxOutputTokens: 4_096,
+			isUserSelectable: true,
+			isDefault: true,
+			tooltip: 'tooltip-from-base',
+			...overrides,
+		} as vscode.LanguageModelChatInformation;
+	}
+
+	test('clones an existing copilot-provider entry, overriding id/family/selectable/default', () => {
+		const endpoint = makeEndpoint({ model: 'gpt-4o-mini' });
+		const base = makeBaseModelInfo({ id: 'gpt-4o-mini' });
+		const result = buildUtilityAliasModelInfo('copilot-utility-small', endpoint, /* isCopilotProviderEndpoint */ true, [base], /* baseCount */ 50);
+
+		assert.strictEqual(result.synthesized, false);
+		assert.deepStrictEqual(result.info, {
+			...base,
+			id: 'copilot-utility-small',
+			family: 'copilot-utility-small',
+			isUserSelectable: false,
+			isDefault: false,
+		});
+	});
+
+	test('synthesizes when the endpoint is not produced by the copilot provider (BYOK override) — id collisions do not clone', () => {
+		// BYOK endpoint whose `model` collides with an existing copilot
+		// model id. Without the explicit boolean guard, this would clone
+		// the wrong (copilot) entry and report incorrect metadata.
+		const endpoint = makeEndpoint({
+			model: 'gpt-4o-mini',
+			name: 'BYOK Mini',
+			version: '2025-01-01',
+			modelMaxPromptTokens: 32_000,
+			maxOutputTokens: 1_024,
+			supportsToolCalls: false,
+			supportsVision: true,
+		});
+		const collidingCopilotEntry = makeBaseModelInfo({ id: 'gpt-4o-mini' });
+
+		const result = buildUtilityAliasModelInfo('copilot-utility-small', endpoint, /* isCopilotProviderEndpoint */ false, [collidingCopilotEntry], /* baseCount */ 100);
+
+		assert.strictEqual(result.synthesized, true);
+		// `BaseTokensPerCompletion` is subtracted along with `baseCount` so
+		// the synthesized entry's `maxInputTokens` matches the convention
+		// used by the regular model entries.
+		assert.strictEqual(result.info.id, 'copilot-utility-small');
+		assert.strictEqual(result.info.name, 'BYOK Mini');
+		assert.strictEqual(result.info.family, 'copilot-utility-small');
+		assert.strictEqual(result.info.version, '2025-01-01');
+		assert.strictEqual(result.info.maxOutputTokens, 1_024);
+		assert.strictEqual(result.info.isUserSelectable, false);
+		assert.strictEqual(result.info.isDefault, false);
+		assert.deepStrictEqual(result.info.capabilities, { toolCalling: false, imageInput: true });
+		// 32_000 - 100 (baseCount) - BaseTokensPerCompletion. Use a strict
+		// upper bound to assert the subtraction happened without re-importing
+		// the constant in the test.
+		assert.ok(result.info.maxInputTokens! < 32_000 - 100, `expected maxInputTokens to subtract baseCount and completion reserve, got ${result.info.maxInputTokens}`);
+	});
+
+	test('synthesizes when no matching base entry exists, even for copilot-provider endpoints', () => {
+		const endpoint = makeEndpoint({ model: 'unknown-model' });
+		const result = buildUtilityAliasModelInfo('copilot-utility', endpoint, /* isCopilotProviderEndpoint */ true, [], /* baseCount */ 0);
+		assert.strictEqual(result.synthesized, true);
+		assert.strictEqual(result.info.id, 'copilot-utility');
+		assert.strictEqual(result.info.family, 'copilot-utility');
 	});
 });
