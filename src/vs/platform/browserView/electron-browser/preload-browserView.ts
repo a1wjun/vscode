@@ -81,6 +81,11 @@ function init() {
 			}
 		}
 
+		// Allow Shift+F10 for context menu
+		if (event.key === 'F10' && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+			return;
+		}
+
 		// Allow native shortcuts to be handled by the browser
 		const ctrlCmd = isMac ? event.metaKey : event.ctrlKey;
 		if (ctrlCmd && !event.altKey) {
@@ -114,7 +119,10 @@ function init() {
 		});
 	});
 
-	const elementPicker = new ElementPicker(el => ipcRenderer.send('vscode:browserView:elementPicked', track(el)));
+	const elementPicker = new ElementPicker(
+		el => ipcRenderer.send('vscode:browserView:elementPicked', track(el)),
+		() => ipcRenderer.send('vscode:browserView:elementPickStopped')
+	);
 
 	const trackedElementsById = new Map<string, WeakRef<Element>>();
 	const finalizationRegistry = new FinalizationRegistry<string>(id => {
@@ -277,7 +285,9 @@ function findCommonVisibleAncestor(candidates: readonly (Node | null | undefined
  * then torn down. `stop()` tears down without picking.
  */
 class ElementPicker {
-	static DRAG_THRESHOLD_PX = 4;
+	private static readonly _DRAG_THRESHOLD_PX = 4;
+	private static readonly _CURSOR_DEFAULT = '/* VS Code injected style */ * { cursor: default !important; }';
+	private static readonly _CURSOR_CROSSHAIR = '/* VS Code injected style */ * { cursor: crosshair !important; }';
 
 	private _selectionActive = false;
 	private _continuous = false;
@@ -294,6 +304,7 @@ class ElementPicker {
 	private _dragStart: { x: number; y: number } | undefined;
 	private _dragStartTarget: Element | undefined;
 	private _highlightTarget: Element | undefined;
+	private _cursorStylesheet: HTMLStyleElement | undefined;
 
 	readonly api = {
 		start: (): boolean => this.start(),
@@ -302,7 +313,8 @@ class ElementPicker {
 	};
 
 	constructor(
-		private readonly _onPicked: (element: Element) => void
+		private readonly _onPicked: (element: Element) => void,
+		private readonly _onStopped: () => void
 	) {
 		// Build the shadow DOM tree once. The host is appended/removed from the
 		// document on start/stop so the overlay only captures events when active.
@@ -356,8 +368,16 @@ class ElementPicker {
 		this._continuous = false; // for now
 		// eslint-disable-next-line no-restricted-syntax
 		document.documentElement.appendChild(this._shadowHost);
-		this._shadowHost.classList.add('selecting');
 		this._selectionActive = true;
+
+		// Inject a stylesheet into the page to override all cursors while element selection is active,
+		// so the cursor always appears as a normal pointer even when over e.g. links.
+		// Updated to crosshair in _onPointerDown, reset in _onPointerUp.
+		const cursorStyle = document.createElement('style');
+		cursorStyle.textContent = ElementPicker._CURSOR_DEFAULT;
+		// eslint-disable-next-line no-restricted-syntax
+		document.head.appendChild(cursorStyle);
+		this._cursorStylesheet = cursorStyle;
 
 		// Register high-frequency listeners only while selection is active.
 		window.addEventListener('pointermove', this._onPointerMove, true);
@@ -365,8 +385,39 @@ class ElementPicker {
 		window.addEventListener('pointerdown', this._onPointerDown, true);
 		window.addEventListener('pointerup', this._onPointerUp, true);
 		window.addEventListener('click', this._onClick, true);
+		window.addEventListener('contextmenu', this._onClick, true);
+		window.addEventListener('keydown', this._onKeyDown, true);
 
 		return true;
+	}
+
+	stop(): void {
+		if (!this._selectionActive) {
+			return;
+		}
+		this._selectionActive = false;
+		this._shadowHost.remove();
+
+		this._cursorStylesheet?.remove();
+		this._cursorStylesheet = undefined;
+
+		// Remove high-frequency listeners.
+		window.removeEventListener('pointermove', this._onPointerMove, true);
+		window.removeEventListener('pointerleave', this._onPointerLeave, true);
+		window.removeEventListener('pointerdown', this._onPointerDown, true);
+		window.removeEventListener('pointerup', this._onPointerUp, true);
+		window.removeEventListener('click', this._onClick, true);
+		window.removeEventListener('contextmenu', this._onClick, true);
+		window.removeEventListener('keydown', this._onKeyDown, true);
+
+		this._highlight.style.display = 'none';
+		this._label.style.display = 'none';
+		this._dragbox.style.display = 'none';
+		this._dragStart = undefined;
+		this._dragStartTarget = undefined;
+		this._highlightTarget = undefined;
+
+		this._onStopped();
 	}
 
 	/**
@@ -400,29 +451,6 @@ class ElementPicker {
 		}
 	}
 
-	stop(): void {
-		if (!this._selectionActive) {
-			return;
-		}
-		this._selectionActive = false;
-		this._shadowHost.classList.remove('selecting');
-		this._shadowHost.remove();
-
-		// Remove high-frequency listeners.
-		window.removeEventListener('pointermove', this._onPointerMove, true);
-		window.removeEventListener('pointerleave', this._onPointerLeave, true);
-		window.removeEventListener('pointerdown', this._onPointerDown, true);
-		window.removeEventListener('pointerup', this._onPointerUp, true);
-		window.removeEventListener('click', this._onClick, true);
-
-		this._highlight.style.display = 'none';
-		this._label.style.display = 'none';
-		this._dragbox.style.display = 'none';
-		this._dragStart = undefined;
-		this._dragStartTarget = undefined;
-		this._highlightTarget = undefined;
-	}
-
 	// --- Event handlers ---
 
 	private _onPointerMove = (e: PointerEvent): void => {
@@ -437,7 +465,7 @@ class ElementPicker {
 		}
 		const dx = Math.abs(e.clientX - this._dragStart.x);
 		const dy = Math.abs(e.clientY - this._dragStart.y);
-		if (dx < ElementPicker.DRAG_THRESHOLD_PX && dy < ElementPicker.DRAG_THRESHOLD_PX) {
+		if (dx < ElementPicker._DRAG_THRESHOLD_PX && dy < ElementPicker._DRAG_THRESHOLD_PX) {
 			return;
 		}
 		const left = Math.min(this._dragStart.x, e.clientX);
@@ -468,11 +496,11 @@ class ElementPicker {
 		if (!this._selectionActive) {
 			return;
 		}
-		if (e.button !== 0) {
-			return;
-		}
 		this._dragStart = { x: e.clientX, y: e.clientY };
 		this._dragStartTarget = this._pickElementAt(e.clientX, e.clientY);
+		if (this._cursorStylesheet) {
+			this._cursorStylesheet.textContent = ElementPicker._CURSOR_CROSSHAIR;
+		}
 		e.preventDefault();
 		e.stopPropagation();
 	};
@@ -488,8 +516,11 @@ class ElementPicker {
 		const dy = Math.abs(e.clientY - this._dragStart.y);
 		const start = this._dragStart;
 		this._dragStart = undefined;
+		if (this._cursorStylesheet) {
+			this._cursorStylesheet.textContent = ElementPicker._CURSOR_DEFAULT;
+		}
 
-		if (dx < ElementPicker.DRAG_THRESHOLD_PX && dy < ElementPicker.DRAG_THRESHOLD_PX) {
+		if (dx < ElementPicker._DRAG_THRESHOLD_PX && dy < ElementPicker._DRAG_THRESHOLD_PX) {
 			// Click → pick the element under the pointer.
 			const target = this._dragStartTarget ?? this._pickElementAt(e.clientX, e.clientY);
 			this._dragStartTarget = undefined;
@@ -520,6 +551,17 @@ class ElementPicker {
 		}
 		e.preventDefault();
 		e.stopPropagation();
+	};
+
+	private _onKeyDown = (e: KeyboardEvent): void => {
+		if (!this._selectionActive) {
+			return;
+		}
+		if (e.key === 'Escape') {
+			this.stop();
+			e.preventDefault();
+			e.stopPropagation();
+		}
 	};
 
 	private _onScrollOrResize(): void {
@@ -662,8 +704,8 @@ class ElementPicker {
 			}
 			.highlight {
 				position: absolute; box-sizing: border-box;
-				border: 2px solid var(--pick-accent, #0078d4);
-				background: color-mix(in srgb, var(--pick-accent, #0078d4) 12%, transparent);
+				border: 2px solid var(--vscode-focusBorder, #0078d4);
+				background: color-mix(in srgb, var(--vscode-focusBorder, #0078d4) 12%, transparent);
 				border-radius: 2px;
 			}
 			.overlay {
@@ -671,15 +713,12 @@ class ElementPicker {
 				background: transparent; box-sizing: border-box;
 				z-index: 1;
 			}
-			:host(.selecting) .overlay {
-				cursor: crosshair;
-			}
 			.label {
 				position: fixed; box-sizing: border-box;
 				display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 6px;
 				max-width: 80vw;
-				background: var(--pick-accent, #0078d4);
-				color: var(--pick-accent-fg, white);
+				background: var(--vscode-button-background, #0078d4);
+				color: var(--vscode-button-foreground, white);
 				font-family: inherit;
 				font-size: 11px; font-weight: 600; line-height: 20px;
 				white-space: nowrap;
@@ -695,7 +734,7 @@ class ElementPicker {
 			}
 			.dragbox {
 				position: fixed; box-sizing: border-box;
-				border: 1px dotted var(--pick-secondary, #a0aabe);
+				border: 1px dotted var(--vscode-focusBorder, #a0aabe);
 				background: transparent;
 				z-index: 2;
 			}
@@ -704,9 +743,9 @@ class ElementPicker {
 	}
 
 	private static _applyTheme(host: HTMLElement, theme: IBrowserViewTheme | undefined): void {
-		host.style.setProperty('--pick-accent', theme?.accentColor ?? null);
-		host.style.setProperty('--pick-accent-fg', theme?.accentForegroundColor ?? null);
-		host.style.setProperty('--pick-secondary', theme?.secondaryColor ?? null);
+		host.style.setProperty('--vscode-focusBorder', theme?.focusBorder ?? null);
+		host.style.setProperty('--vscode-button-background', theme?.buttonBackground ?? null);
+		host.style.setProperty('--vscode-button-foreground', theme?.buttonForeground ?? null);
 		host.style.setProperty('--pick-font', theme?.font ?? null);
 	}
 }
