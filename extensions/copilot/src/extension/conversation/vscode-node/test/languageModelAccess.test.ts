@@ -10,6 +10,7 @@ import { ChatFetchResponseType } from '../../../../platform/chat/common/commonTy
 import { MockChatMLFetcher } from '../../../../platform/chat/test/common/mockChatMLFetcher';
 import { IEndpointProvider } from '../../../../platform/endpoint/common/endpointProvider';
 import { CustomDataPartMimeTypes } from '../../../../platform/endpoint/common/endpointTypes';
+import { CopilotChatEndpoint } from '../../../../platform/endpoint/node/copilotChatEndpoint';
 import { IVSCodeExtensionContext } from '../../../../platform/extContext/common/extensionContext';
 import { IChatEndpoint } from '../../../../platform/networking/common/networking';
 import { ITestingServicesAccessor } from '../../../../platform/test/node/services';
@@ -151,6 +152,12 @@ suite('buildUtilityAliasModelInfo', () => {
 		} as IChatEndpoint;
 	}
 
+	function makeCopilotEndpoint(overrides: Partial<IChatEndpoint>): IChatEndpoint {
+		const endpoint = makeEndpoint(overrides);
+		Object.setPrototypeOf(endpoint, CopilotChatEndpoint.prototype);
+		return endpoint;
+	}
+
 	function makeBaseModelInfo(overrides: Partial<vscode.LanguageModelChatInformation> & Pick<vscode.LanguageModelChatInformation, 'id'>): vscode.LanguageModelChatInformation {
 		return {
 			name: 'Cloned Display Name',
@@ -166,7 +173,7 @@ suite('buildUtilityAliasModelInfo', () => {
 	}
 
 	test('clones an existing copilot-provider entry, overriding id/family/selectable/default', () => {
-		const endpoint = makeEndpoint({ model: 'gpt-4o-mini' });
+		const endpoint = makeCopilotEndpoint({ model: 'gpt-4o-mini' });
 		const base = makeBaseModelInfo({ id: 'gpt-4o-mini', requiresAuthorization: { label: 'octocat' } });
 		const result = buildUtilityAliasModelInfo('copilot-utility-small', endpoint, [base], /* baseCount */ 50, undefined);
 
@@ -177,6 +184,32 @@ suite('buildUtilityAliasModelInfo', () => {
 			family: 'copilot-utility-small',
 			isUserSelectable: false,
 			isDefault: false,
+		});
+	});
+
+	test('synthesizes for non-copilot endpoints when a copilot model shares the same id', () => {
+		const endpoint = makeEndpoint({
+			model: 'gpt-4o-mini',
+			name: 'BYOK GPT 4o mini',
+			maxOutputTokens: 2_048,
+			supportsToolCalls: false,
+			supportsVision: true,
+		});
+		const base = makeBaseModelInfo({ id: 'gpt-4o-mini', requiresAuthorization: { label: 'octocat' } });
+		const result = buildUtilityAliasModelInfo('copilot-utility-small', endpoint, [base], /* baseCount */ 50, { label: 'octocat' });
+
+		assert.deepStrictEqual({
+			synthesized: result.synthesized,
+			name: result.info.name,
+			maxOutputTokens: result.info.maxOutputTokens,
+			requiresAuthorization: result.info.requiresAuthorization,
+			capabilities: result.info.capabilities,
+		}, {
+			synthesized: true,
+			name: 'BYOK GPT 4o mini',
+			maxOutputTokens: 2_048,
+			requiresAuthorization: { label: 'octocat' },
+			capabilities: { toolCalling: false, imageInput: true },
 		});
 	});
 

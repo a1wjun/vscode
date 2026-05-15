@@ -163,14 +163,14 @@ function buildConfigurationSchema(endpoint: IChatEndpoint): { configurationSchem
  * Builds the {@link vscode.LanguageModelChatInformation} entry that publishes a
  * utility-family alias (e.g. `copilot-utility-small`) under the copilot vendor.
  *
- * If a matching entry exists in {@link models} for the endpoint's model id,
- * that entry is cloned so the alias inherits provider-specific metadata
- * (including `requiresAuthorization`). Otherwise a minimal entry is
- * synthesized from the endpoint with `maxInputTokens` reduced by both
- * `baseCount` and {@link BaseTokensPerCompletion} to match what the regular
- * model entries report, and {@link requiresAuthorization} is applied so the
- * synthesized alias enforces the same model-access authorization as a normal
- * copilot model entry.
+ * If the endpoint is a Copilot endpoint and a matching entry exists in
+ * {@link models} for its model id, that entry is cloned so the alias inherits
+ * provider-specific metadata (including `requiresAuthorization`). Otherwise a
+ * minimal entry is synthesized from the endpoint with `maxInputTokens` reduced
+ * by both `baseCount` and {@link BaseTokensPerCompletion} to match what the
+ * regular model entries report, and {@link requiresAuthorization} is applied so
+ * the synthesized alias enforces the same model-access authorization as a
+ * normal copilot model entry.
  */
 export function buildUtilityAliasModelInfo(
 	family: ChatEndpointFamily,
@@ -179,7 +179,7 @@ export function buildUtilityAliasModelInfo(
 	baseCount: number,
 	requiresAuthorization: vscode.LanguageModelChatInformation['requiresAuthorization'],
 ): { info: vscode.LanguageModelChatInformation; synthesized: boolean } {
-	const base = models.find(m => m.id === endpoint.model);
+	const base = endpoint instanceof CopilotChatEndpoint ? models.find(m => m.id === endpoint.model) : undefined;
 	if (base) {
 		return {
 			synthesized: false,
