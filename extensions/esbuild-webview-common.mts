@@ -11,7 +11,7 @@ import { runBuild, type RunConfig } from './esbuild-common.mts';
 
 const baseOptions: esbuild.BuildOptions = {
 	bundle: true,
-	minify: false,
+	minify: true,
 	sourcemap: false,
 	format: 'esm' as const,
 	platform: 'browser' as const,
