@@ -244,7 +244,6 @@ export class AgentHostSessionAdapter implements ISession {
 			updatedAt: this.updatedAt,
 			status: this.status,
 			changes: this.changes,
-			changesets: this.changesets,
 			checkpoints,
 			modelId: this.modelId,
 			mode: this.mode,
@@ -479,7 +478,6 @@ class NewSession extends Disposable {
 		const mainChat: IChat = {
 			resource, createdAt, title, updatedAt,
 			status: this._status,
-			changesets,
 			changes,
 			checkpoints,
 			modelId: this._modelId,
