@@ -1,3 +1,8 @@
+parameters:
+  - name: VSCODE_RELEASE
+    type: boolean
+    default: false
+
 jobs:
   - job: Copilot
     displayName: Copilot
@@ -30,13 +35,14 @@ jobs:
       - template: copilot/build-steps.yml
       - template: copilot/l10n-steps.yml
 
-      - task: notice@0
-        inputs:
-          outputfile: $(Build.SourcesDirectory)/extensions/copilot/ThirdPartyNotices.txt
-          outputformat: text
-        continueOnError: true
-        retryCountOnTaskFailure: 5
-        displayName: Generate NOTICE file
+      - ${{ if or(eq(variables['VSCODE_PUBLISH'], true), eq(parameters.VSCODE_RELEASE, true)) }}:
+        - task: notice@0
+          inputs:
+            outputfile: $(Build.SourcesDirectory)/extensions/copilot/ThirdPartyNotices.txt
+            outputformat: text
+          continueOnError: true
+          retryCountOnTaskFailure: 5
+          displayName: Generate NOTICE file
 
       - script: |
           set -e
