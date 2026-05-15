@@ -12,6 +12,12 @@ export interface MermaidWebviewInfo {
 	readonly type: 'chat' | 'editor';
 }
 
+export interface MermaidCommandContext {
+	readonly mermaidWebviewId?: string;
+	readonly mermaidSource?: string;
+	readonly title?: string;
+}
+
 /**
  * Manages all mermaid webviews (both chat output renderers and editor previews).
  * Tracks the active webview and provides methods for interacting with webviews.

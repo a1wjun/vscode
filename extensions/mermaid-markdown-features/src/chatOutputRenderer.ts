@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 import * as vscode from 'vscode';
 import { MermaidEditorManager } from './editorManager';
-import { MermaidWebviewManager } from './webviewManager';
+import { MermaidCommandContext, MermaidWebviewManager } from './webviewManager';
 import { escapeHtmlText } from './util/html';
 import { generateUuid } from './util/uuid';
 import { disposeAll } from './util/dispose';
@@ -17,7 +17,7 @@ const mime = 'text/vnd.mermaid';
 /**
  * View type that uniquely identifies the Mermaid chat output renderer.
  */
-const viewType = 'vscode.chat-mermaid-features.chatOutputItem';
+const viewType = 'vscode.mermaid-markdown-features.chatOutputItem';
 
 class MermaidChatOutputRenderer implements vscode.ChatOutputRenderer {
 
@@ -43,7 +43,7 @@ class MermaidChatOutputRenderer implements vscode.ChatOutputRenderer {
 		// Listen for messages from the webview
 		disposables.push(webview.onDidReceiveMessage(message => {
 			if (message.type === 'openInEditor') {
-				vscode.commands.executeCommand('_mermaid-chat.openInEditor', { mermaidWebviewId: webviewId });
+				void vscode.commands.executeCommand('_mermaid-markdown.openInEditor', { mermaidWebviewId: webviewId });
 			}
 		}));
 
@@ -63,6 +63,7 @@ class MermaidChatOutputRenderer implements vscode.ChatOutputRenderer {
 		const nonce = generateUuid();
 		const mermaidScript = vscode.Uri.joinPath(mediaRoot, 'index.js');
 		const codiconsUri = webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'codicon.css'));
+		const openInEditorLabel = vscode.l10n.t('Open Diagram in Editor');
 
 		webview.html = `
 			<!DOCTYPE html>
@@ -103,7 +104,8 @@ class MermaidChatOutputRenderer implements vscode.ChatOutputRenderer {
 						opacity: 0;
 						transition: opacity 0.2s;
 					}
-					body:hover .open-in-editor-btn {
+					body:hover .open-in-editor-btn,
+					.open-in-editor-btn:focus {
 						opacity: 1;
 					}
 					.open-in-editor-btn:hover {
@@ -114,7 +116,7 @@ class MermaidChatOutputRenderer implements vscode.ChatOutputRenderer {
 			</head>
 
 			<body data-vscode-context='${JSON.stringify({ preventDefaultContextMenuItems: true, mermaidWebviewId: webviewId })}' data-vscode-mermaid-webview-id="${webviewId}">
-				<button class="open-in-editor-btn" title="${vscode.l10n.t('Open in Editor')}"><i class="codicon codicon-open-preview"></i></button>
+				<button class="open-in-editor-btn" title="${openInEditorLabel}" aria-label="${openInEditorLabel}"><i class="codicon codicon-open-preview" aria-hidden="true"></i></button>
 				<pre class="mermaid">
 					${escapeHtmlText(mermaidSource)}
 				</pre>
@@ -134,7 +136,12 @@ export function registerChatSupport(
 	const disposables: vscode.Disposable[] = [];
 
 	disposables.push(
-		vscode.commands.registerCommand('_mermaid-chat.openInEditor', (ctx?: { mermaidWebviewId?: string }) => {
+		vscode.commands.registerCommand('_mermaid-markdown.openInEditor', (ctx?: MermaidCommandContext) => {
+			if (typeof ctx?.mermaidSource === 'string') {
+				editorManager.openPreview(ctx.mermaidSource, typeof ctx.title === 'string' ? ctx.title : undefined);
+				return;
+			}
+
 			const webviewInfo = ctx?.mermaidWebviewId ? webviewManager.getWebview(ctx.mermaidWebviewId) : webviewManager.activeWebview;
 			if (webviewInfo) {
 				editorManager.openPreview(webviewInfo.mermaidSource, webviewInfo.title);

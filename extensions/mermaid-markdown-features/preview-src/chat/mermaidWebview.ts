@@ -19,6 +19,7 @@ export class PanZoomHandler {
 	private isPanning = false;
 	private hasDragged = false;
 	private hasInteracted = false;
+	private panModeEnabled = false;
 	private startX = 0;
 	private startY = 0;
 
@@ -76,13 +77,7 @@ export class PanZoomHandler {
 	private handleKeyChange(e: KeyboardEvent): void {
 		if ((e.key === 'Alt' || e.key === 'Shift') && !this.isPanning) {
 			e.preventDefault();
-			if (e.altKey && !e.shiftKey) {
-				this.container.style.cursor = 'grab';
-			} else if (e.altKey && e.shiftKey) {
-				this.container.style.cursor = 'zoom-out';
-			} else {
-				this.container.style.cursor = 'default';
-			}
+			this.setCursor(e.altKey, e.shiftKey);
 		}
 	}
 
@@ -90,9 +85,18 @@ export class PanZoomHandler {
 		if (this.isPanning) {
 			return;
 		}
-		if (e.altKey && !e.shiftKey) {
+		this.setCursor(e.altKey, e.shiftKey);
+	}
+
+	private setCursor(altKey: boolean, shiftKey: boolean): void {
+		if (this.panModeEnabled) {
 			this.container.style.cursor = 'grab';
-		} else if (e.altKey && e.shiftKey) {
+			return;
+		}
+
+		if (altKey && !shiftKey) {
+			this.container.style.cursor = 'grab';
+		} else if (altKey && shiftKey) {
 			this.container.style.cursor = 'zoom-out';
 		} else {
 			this.container.style.cursor = 'default';
@@ -154,7 +158,7 @@ export class PanZoomHandler {
 	}
 
 	private handleMouseDown(e: MouseEvent): void {
-		if (e.button !== 0 || !e.altKey) {
+		if (e.button !== 0 || (!this.panModeEnabled && !e.altKey)) {
 			return;
 		}
 		e.preventDefault();
@@ -190,7 +194,7 @@ export class PanZoomHandler {
 	private handleMouseUp(): void {
 		if (this.isPanning) {
 			this.isPanning = false;
-			this.container.style.cursor = 'default';
+			this.setCursor(false, false);
 			this.saveState();
 		}
 	}
@@ -278,6 +282,12 @@ export class PanZoomHandler {
 	public zoomOut(): void {
 		const rect = this.container.getBoundingClientRect();
 		this.zoomAtPoint(0.8, rect.width / 2, rect.height / 2);
+	}
+
+	public togglePanMode(): boolean {
+		this.panModeEnabled = !this.panModeEnabled;
+		this.setCursor(false, false);
+		return this.panModeEnabled;
 	}
 
 	private zoomAtPoint(factor: number, x: number, y: number): void {

@@ -8,7 +8,7 @@ import { MermaidWebviewManager } from './webviewManager';
 import { escapeHtmlText } from './util/html';
 import { Disposable } from './util/dispose';
 
-export const mermaidEditorViewType = 'vscode.chat-mermaid-features.preview';
+export const mermaidEditorViewType = 'vscode.mermaid-markdown-features.preview';
 
 interface MermaidPreviewState {
 	readonly webviewId: string;
@@ -211,6 +211,10 @@ class MermaidPreview extends Disposable {
 		const codiconsUri = this._webviewPanel.webview.asWebviewUri(
 			vscode.Uri.joinPath(mediaRoot, 'codicon.css')
 		);
+		const togglePanModeLabel = vscode.l10n.t('Toggle Pan Mode');
+		const zoomOutLabel = vscode.l10n.t('Zoom Out');
+		const zoomInLabel = vscode.l10n.t('Zoom In');
+		const resetPanZoomLabel = vscode.l10n.t('Reset Pan and Zoom');
 
 		return /* html */`<!DOCTYPE html>
 			<html lang="en">
@@ -265,13 +269,18 @@ class MermaidPreview extends Disposable {
 					.zoom-controls button:hover {
 						background: var(--vscode-toolbar-hoverBackground);
 					}
+					.zoom-controls button.active {
+						background: var(--vscode-toolbar-activeBackground);
+						color: var(--vscode-focusBorder);
+					}
 				</style>
 			</head>
 			<body data-vscode-context='${JSON.stringify({ preventDefaultContextMenuItems: true, mermaidWebviewId: this.diagramId })}' data-vscode-mermaid-webview-id="${this.diagramId}">
 				<div class="zoom-controls">
-					<button class="zoom-out-btn" title="${vscode.l10n.t('Zoom Out')}"><i class="codicon codicon-zoom-out"></i></button>
-					<button class="zoom-in-btn" title="${vscode.l10n.t('Zoom In')}"><i class="codicon codicon-zoom-in"></i></button>
-					<button class="zoom-reset-btn" title="${vscode.l10n.t('Reset Zoom')}"><i class="codicon codicon-screen-normal"></i></button>
+					<button class="pan-mode-btn" title="${togglePanModeLabel}" aria-label="${togglePanModeLabel}" aria-pressed="false"><i class="codicon codicon-move" aria-hidden="true"></i></button>
+					<button class="zoom-out-btn" title="${zoomOutLabel}" aria-label="${zoomOutLabel}"><i class="codicon codicon-zoom-out" aria-hidden="true"></i></button>
+					<button class="zoom-in-btn" title="${zoomInLabel}" aria-label="${zoomInLabel}"><i class="codicon codicon-zoom-in" aria-hidden="true"></i></button>
+					<button class="zoom-reset-btn" title="${resetPanZoomLabel}" aria-label="${resetPanZoomLabel}"><i class="codicon codicon-screen-normal" aria-hidden="true"></i></button>
 				</div>
 				<pre class="mermaid">
 					${escapeHtmlText(this._mermaidSource)}
