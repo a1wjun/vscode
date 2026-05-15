@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'assert';
+import { DeferredPromise } from '../../../../../base/common/async.js';
 import { Emitter } from '../../../../../base/common/event.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { ExtensionIdentifier } from '../../../../../platform/extensions/common/extensions.js';
@@ -13,8 +14,11 @@ import { ILanguageModelChatMetadata, ILanguageModelProviderDescriptor, ILanguage
 
 class TestLanguageModelsService implements Partial<ILanguageModelsService> {
 	private readonly _models = new Map<string, ILanguageModelChatMetadata>();
+	private readonly _modelsPendingResolution: ILanguageModelChatMetadata[] = [];
 	private readonly _vendors: ILanguageModelProviderDescriptor[] = [];
+	private readonly _selectLanguageModelsGates: DeferredPromise<void>[] = [];
 	private _modelCounter = 0;
+	private _selectLanguageModelsCalls = 0;
 
 	private readonly _onDidChangeLanguageModels = new Emitter<string>();
 	readonly onDidChangeLanguageModels = this._onDidChangeLanguageModels.event;
@@ -24,12 +28,27 @@ class TestLanguageModelsService implements Partial<ILanguageModelsService> {
 
 	addVendor(vendor: ILanguageModelProviderDescriptor): void {
 		this._vendors.push(vendor);
+		this._onDidChangeLanguageModelVendors.fire([vendor.vendor]);
 	}
 
 	addModel(metadata: ILanguageModelChatMetadata): void {
 		// Use an internal unique key so callers can register multiple models
 		// that share the same `${vendor}/${id}` (different provider groups).
 		this._models.set(`${this._modelCounter++}:${metadata.vendor}/${metadata.id}`, metadata);
+	}
+
+	addModelAfterResolution(metadata: ILanguageModelChatMetadata): void {
+		this._modelsPendingResolution.push(metadata);
+	}
+
+	deferNextSelectLanguageModels(): DeferredPromise<void> {
+		const gate = new DeferredPromise<void>();
+		this._selectLanguageModelsGates.push(gate);
+		return gate;
+	}
+
+	get selectLanguageModelsCalls(): number {
+		return this._selectLanguageModelsCalls;
 	}
 
 	getLanguageModelIds(): string[] {
@@ -45,6 +64,15 @@ class TestLanguageModelsService implements Partial<ILanguageModelsService> {
 	}
 
 	async selectLanguageModels(): Promise<string[]> {
+		this._selectLanguageModelsCalls++;
+		const modelsPendingResolution = this._modelsPendingResolution.splice(0);
+		const gate = this._selectLanguageModelsGates.shift();
+		if (gate) {
+			await gate.p;
+		}
+		for (const model of modelsPendingResolution) {
+			this.addModel(model);
+		}
 		return Array.from(this._models.keys());
 	}
 
@@ -194,6 +222,29 @@ suite('DefaultModelContribution', () => {
 			{
 				ids: ['', 'anthropic/claude-sonnet-4.5'],
 				labels: ['Auto (Vendor Default)', 'Claude Sonnet 4.5 (Anthropic)'],
+			},
+		);
+	});
+
+	test('vendor changes during eager vendor resolution trigger a follow-up resolution pass', async () => {
+		const service = new TestLanguageModelsService();
+		store.add({ dispose: () => service.dispose() });
+		const firstResolution = service.deferNextSelectLanguageModels();
+		const arrays = createDefaultModelArrays();
+		store.add(new TestContribution(arrays, 'vendorAndId', service as unknown as ILanguageModelsService));
+
+		service.addVendor({ vendor: 'anthropic', displayName: 'Anthropic', isDefault: false, configuration: undefined, managementCommand: undefined, when: undefined });
+		service.addModelAfterResolution(makeMetadata({ id: 'claude-haiku-4.5', name: 'Claude Haiku 4.5', vendor: 'anthropic' }));
+		firstResolution.complete(undefined);
+		await flush();
+		await flush();
+
+		assert.deepStrictEqual(
+			{ selectCalls: service.selectLanguageModelsCalls, ids: arrays.modelIds, labels: arrays.modelLabels },
+			{
+				selectCalls: 2,
+				ids: ['', 'anthropic/claude-haiku-4.5'],
+				labels: ['Auto (Vendor Default)', 'Claude Haiku 4.5 (Anthropic)'],
 			},
 		);
 	});
