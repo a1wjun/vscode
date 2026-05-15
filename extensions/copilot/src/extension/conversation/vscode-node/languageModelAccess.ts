@@ -438,10 +438,15 @@ export class LanguageModelAccess extends Disposable implements IExtensionContrib
 				this._logService.trace(`[LanguageModelAccess] Not publishing alias '${family}' for non-copilot endpoint '${endpoint.model}' (BYOK override) to avoid bypassing the underlying provider's authorization.`);
 				continue;
 			}
-			const baseCount = await this._promptBaseCountCache.getBaseCount(endpoint);
-			const aliasInfo = buildUtilityAliasModelInfo(family, endpoint, /* isCopilotProviderEndpoint */ true, models, baseCount);
-			this._logService.trace(`[LanguageModelAccess] Publishing alias '${family}' -> ${endpoint.model} (${aliasInfo.synthesized ? 'synthesized' : 'cloned'}).`);
-			models.push(aliasInfo.info);
+
+			try {
+				const baseCount = await this._promptBaseCountCache.getBaseCount(endpoint);
+				const aliasInfo = buildUtilityAliasModelInfo(family, endpoint, /* isCopilotProviderEndpoint */ true, models, baseCount);
+				this._logService.trace(`[LanguageModelAccess] Publishing alias '${family}' -> ${endpoint.model} (${aliasInfo.synthesized ? 'synthesized' : 'cloned'}).`);
+				models.push(aliasInfo.info);
+			} catch (err) {
+				this._logService.warn(`[LanguageModelAccess] Failed to publish utility alias '${family}' -> ${endpoint.model}; skipping. Error: ${err}`);
+			}
 		}
 	}
 

@@ -158,6 +158,11 @@ export abstract class DefaultModelContribution extends Disposable {
 				if (model.metadata?.isUserSelectable === false) {
 					return false;
 				}
+				// Models scoped to a specific chat session type (e.g. agent-host
+				// providers) are intentionally hidden from general model pickers.
+				if (model.metadata?.targetChatSessionType !== undefined) {
+					return false;
+				}
 				if (filter && !filter(model.metadata)) {
 					return false;
 				}
@@ -174,14 +179,17 @@ export abstract class DefaultModelContribution extends Disposable {
 				vendorDisplayNames.set(vendor.vendor, vendor.displayName);
 			}
 
-			// When the storage format is `vendorAndId`, two models in different
-			// provider groups can collapse to the same `${vendor}/${id}` key.
-			// The setting value would then be ambiguous, so exclude every model
-			// whose key is not unique among the supported models.
+			// When the storage format is `vendorAndId`, two models can collapse
+			// to the same `${vendor}/${id}` key. The override resolver does not
+			// filter on `isUserSelectable`, so a hidden/internal model with the
+			// same vendor/id as a visible one would make the chosen value
+			// silently fall back to the default at runtime. Compute ambiguity
+			// across *all* models (not just `supportedModels`) so any such
+			// collision excludes the visible entry from the picker too.
 			const ambiguousVendorIds = new Set<string>();
 			if (storageFormat === 'vendorAndId') {
 				const counts = new Map<string, number>();
-				for (const model of supportedModels) {
+				for (const model of models) {
 					const key = `${model.metadata.vendor}/${model.metadata.id}`;
 					counts.set(key, (counts.get(key) ?? 0) + 1);
 				}
@@ -192,14 +200,13 @@ export abstract class DefaultModelContribution extends Disposable {
 				}
 			}
 
-			this._logService.trace(`${logPrefix} Picker rebuilt: ${models.length} model(s) considered, ${supportedModels.length} included; vendors: [${Array.from(vendorDisplayNames.keys()).join(', ')}]${ambiguousVendorIds.size ? `; excluded ambiguous: [${Array.from(ambiguousVendorIds).join(', ')}]` : ''}`);
-
 			for (const model of supportedModels) {
 				try {
 					const storedId = storageFormat === 'vendorAndId'
 						? `${model.metadata.vendor}/${model.metadata.id}`
 						: ILanguageModelChatMetadata.asQualifiedName(model.metadata);
 					if (ambiguousVendorIds.has(storedId)) {
+						this._logService.trace(`${logPrefix} Skipping model '${model.metadata.name}' (${storedId}): key collides with another registered model.`);
 						continue;
 					}
 					const vendorDisplayName = vendorDisplayNames.get(model.metadata.vendor);
