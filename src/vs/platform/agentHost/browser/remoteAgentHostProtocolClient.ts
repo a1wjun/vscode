@@ -1085,29 +1085,30 @@ export class RemoteAgentHostProtocolClient extends Disposable implements IAgentC
 		params: unknown,
 		options: { readonly bypassReconnectGate?: boolean } = {},
 	): Promise<TResult> {
+		// Ride through any number of reconnect cycles until the client is
+		// either Connected (proceed) or Closed (throw). A transient failed
+		// attempt does NOT surface to the caller — the request stays gated
+		// until the connection eventually resumes, matching how the
+		// notification outbox rides across retries. A subsequent transport
+		// drop that bounces us back into Reconnecting after the gate already
+		// resolved is also handled here: the loop re-checks state on each
+		// iteration so we never send on a dead/reconnecting transport.
+		while (!options.bypassReconnectGate && this._state.kind === AgentHostClientState.Reconnecting) {
+			const current = this._state as ClientState;
+			if (current.kind !== AgentHostClientState.Reconnecting) {
+				break;
+			}
+			try {
+				await current.reconnect.gate.p;
+			} catch {
+				// Transient attempt failure — swallow and re-check state on the
+				// next loop iteration. If we transitioned to Closed the check
+				// after the loop surfaces the error; if we're still Reconnecting
+				// with a fresh gate we'll await that one.
+			}
+		}
 		if (this._state.kind === AgentHostClientState.Closed) {
 			throw this._state.error;
-		}
-
-		if (this._state.kind === AgentHostClientState.Reconnecting && !options.bypassReconnectGate) {
-			const gate = this._state.reconnect.gate;
-			try {
-				await gate.p;
-			} catch (err) {
-				// Reconnect failed; surface the same error to the caller so
-				// they don't hang on a request that can never complete on this
-				// attempt. The protocol client's own retry loop continues in
-				// the background.
-				const after = this._state as ClientState;
-				if (after.kind === AgentHostClientState.Closed) {
-					throw after.error;
-				}
-				throw err instanceof ProtocolError ? err : connectionClosedError(this._address);
-			}
-			const after = this._state as ClientState;
-			if (after.kind === AgentHostClientState.Closed) {
-				throw after.error;
-			}
 		}
 
 		const id = this._nextRequestId++;

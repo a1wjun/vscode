@@ -1098,6 +1098,46 @@ suite('RemoteAgentHostProtocolClient', () => {
 			});
 		});
 
+		test('request issued during reconnect rides retries until success', async function () {
+			this.timeout(10_000);
+			return runWithFakedTimers({ useFakeTimers: true, maxTaskCount: 10_000 }, async () => {
+				const { client, transports } = createFactoryClient();
+				const connectPromise = client.connect();
+				await completeHandshake(transports[0], connectPromise);
+
+				transports[0].fireClose();
+				await waitForReconnecting(client);
+
+				// Issue a request while the gate is engaged. The first reconnect
+				// attempt will fail; the request must NOT surface the transient
+				// failure to its caller, it should stay gated until the next
+				// successful handshake.
+				const inFlight = client.resourceList(URI.file('/workspace')).catch(err => err);
+
+				const attempt1 = await waitForTransport(transports, 1);
+				attempt1.connectDeferred.error(new Error('connect failed'));
+
+				const attempt2 = await waitForTransport(transports, 2);
+				assert.strictEqual(findRequest(attempt2, 'resourceList'), undefined,
+					'request must not slip through to the new transport before its handshake completes');
+
+				attempt2.connectDeferred.complete();
+				const reconnect2 = await waitForRequest(attempt2, 'reconnect');
+				attempt2.fireMessage({
+					jsonrpc: '2.0', id: reconnect2.id,
+					result: { type: ReconnectResultType.Replay, actions: [], missing: [] },
+				});
+
+				const resourceList = await waitForRequest(attempt2, 'resourceList');
+				attempt2.fireMessage({ jsonrpc: '2.0', id: resourceList.id, result: { entries: [] } });
+
+				const value = await inFlight;
+				assert.deepStrictEqual(value, { entries: [] },
+					'request must resolve once a later reconnect attempt succeeds');
+				client.dispose();
+			});
+		});
+
 		test('_sendExtensionRequest waits for the reconnect gate', async function () {
 			this.timeout(10_000);
 			return runWithFakedTimers({ useFakeTimers: true, maxTaskCount: 10_000 }, async () => {
