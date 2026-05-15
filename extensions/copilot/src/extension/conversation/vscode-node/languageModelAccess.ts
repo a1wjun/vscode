@@ -163,23 +163,21 @@ function buildConfigurationSchema(endpoint: IChatEndpoint): { configurationSchem
  * Builds the {@link vscode.LanguageModelChatInformation} entry that publishes a
  * utility-family alias (e.g. `copilot-utility-small`) under the copilot vendor.
  *
- * If a matching entry exists in {@link models}, that entry is cloned so the
- * alias inherits provider-specific metadata. Otherwise a minimal entry is
- * synthesized from the endpoint and `maxInputTokens` is reduced by both
+ * If a matching entry exists in {@link models} for the endpoint's model id,
+ * that entry is cloned so the alias inherits provider-specific metadata
+ * (including `requiresAuthorization`). Otherwise a minimal entry is
+ * synthesized from the endpoint with `maxInputTokens` reduced by both
  * `baseCount` and {@link BaseTokensPerCompletion} to match what the regular
- * model entries report.
- *
- * Callers must only invoke this for endpoints produced by the copilot
- * provider — id-based matching against {@link models} is otherwise unsafe
- * (a BYOK model id can collide with a copilot model id, e.g. `gpt-4o`). The
- * sole production caller (`_registerUtilityAliasModels`) enforces this with
- * an `endpoint instanceof CopilotChatEndpoint` guard.
+ * model entries report, and {@link requiresAuthorization} is applied so the
+ * synthesized alias enforces the same model-access authorization as a normal
+ * copilot model entry.
  */
 export function buildUtilityAliasModelInfo(
 	family: ChatEndpointFamily,
 	endpoint: IChatEndpoint,
 	models: readonly vscode.LanguageModelChatInformation[],
 	baseCount: number,
+	requiresAuthorization: vscode.LanguageModelChatInformation['requiresAuthorization'],
 ): { info: vscode.LanguageModelChatInformation; synthesized: boolean } {
 	const base = models.find(m => m.id === endpoint.model);
 	if (base) {
@@ -203,6 +201,7 @@ export function buildUtilityAliasModelInfo(
 			version: endpoint.version,
 			maxInputTokens: endpoint.modelMaxPromptTokens - baseCount - BaseTokensPerCompletion,
 			maxOutputTokens: endpoint.maxOutputTokens,
+			requiresAuthorization,
 			isUserSelectable: false,
 			isDefault: false,
 			capabilities: {
@@ -403,6 +402,8 @@ export class LanguageModelAccess extends Disposable implements IExtensionContrib
 	private async _registerUtilityAliasModels(models: vscode.LanguageModelChatInformation[]): Promise<void> {
 		this._utilityAliasEndpoints.clear();
 		const aliasFamilies: ChatEndpointFamily[] = ['copilot-utility-small', 'copilot-utility'];
+		const session = this._authenticationService.anyGitHubSession;
+		const requiresAuthorization = session ? { label: session.account.label } : undefined;
 		for (const family of aliasFamilies) {
 			let endpoint: IChatEndpoint | undefined;
 			try {
@@ -414,23 +415,21 @@ export class LanguageModelAccess extends Disposable implements IExtensionContrib
 			if (!endpoint) {
 				continue;
 			}
-			// Always remember the resolved endpoint so internal callers that
-			// route through this provider's `_getEndpointForModel` (i.e.
-			// alias-id-based requests that already crossed the LM API) keep
-			// working when an override is active.
 			this._utilityAliasEndpoints.set(family, endpoint);
-
-			// Only publish the alias as an entry under the `copilot` vendor
-			// when the resolved endpoint is itself a copilot-provider endpoint.
-			if (!(endpoint instanceof CopilotChatEndpoint)) {
-				this._logService.trace(`[LanguageModelAccess] Not publishing alias '${family}' for non-copilot endpoint '${endpoint.model}' (BYOK override) to avoid bypassing the underlying provider's authorization.`);
-				continue;
-			}
 
 			try {
 				const baseCount = await this._promptBaseCountCache.getBaseCount(endpoint);
-				const aliasInfo = buildUtilityAliasModelInfo(family, endpoint, models, baseCount);
-				this._logService.trace(`[LanguageModelAccess] Publishing alias '${family}' -> ${endpoint.model} (${aliasInfo.synthesized ? 'synthesized' : 'cloned'}).`);
+				// Always publish the alias as an entry under the `copilot` vendor
+				// — including for BYOK overrides — so workbench consumers that
+				// resolve these utility aliases directly via
+				// `vscode.lm.selectChatModels({ vendor: 'copilot', id: '<alias>' })`
+				// continue to discover a model when the alias is overridden to a
+				// non-copilot endpoint. The alias entry carries the same
+				// `requiresAuthorization` metadata as regular copilot entries so
+				// other extensions can't use it to bypass the underlying
+				// provider's authorization prompt.
+				const aliasInfo = buildUtilityAliasModelInfo(family, endpoint, models, baseCount, requiresAuthorization);
+				this._logService.trace(`[LanguageModelAccess] Publishing alias '${family}' -> ${endpoint.model} (${aliasInfo.synthesized ? 'synthesized' : 'cloned'}, ${endpoint instanceof CopilotChatEndpoint ? 'copilot' : 'override'}).`);
 				models.push(aliasInfo.info);
 			} catch (err) {
 				this._logService.warn(`[LanguageModelAccess] Failed to publish utility alias '${family}' -> ${endpoint.model}; skipping. Error: ${err}`);

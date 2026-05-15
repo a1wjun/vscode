@@ -167,8 +167,8 @@ suite('buildUtilityAliasModelInfo', () => {
 
 	test('clones an existing copilot-provider entry, overriding id/family/selectable/default', () => {
 		const endpoint = makeEndpoint({ model: 'gpt-4o-mini' });
-		const base = makeBaseModelInfo({ id: 'gpt-4o-mini' });
-		const result = buildUtilityAliasModelInfo('copilot-utility-small', endpoint, [base], /* baseCount */ 50);
+		const base = makeBaseModelInfo({ id: 'gpt-4o-mini', requiresAuthorization: { label: 'octocat' } });
+		const result = buildUtilityAliasModelInfo('copilot-utility-small', endpoint, [base], /* baseCount */ 50, undefined);
 
 		assert.strictEqual(result.synthesized, false);
 		assert.deepStrictEqual(result.info, {
@@ -190,7 +190,7 @@ suite('buildUtilityAliasModelInfo', () => {
 			supportsToolCalls: false,
 			supportsVision: true,
 		});
-		const result = buildUtilityAliasModelInfo('copilot-utility', endpoint, [], /* baseCount */ 100);
+		const result = buildUtilityAliasModelInfo('copilot-utility', endpoint, [], /* baseCount */ 100, { label: 'octocat' });
 
 		assert.strictEqual(result.synthesized, true);
 		assert.strictEqual(result.info.id, 'copilot-utility');
@@ -201,6 +201,10 @@ suite('buildUtilityAliasModelInfo', () => {
 		assert.strictEqual(result.info.isUserSelectable, false);
 		assert.strictEqual(result.info.isDefault, false);
 		assert.deepStrictEqual(result.info.capabilities, { toolCalling: false, imageInput: true });
+		// Synthesized alias must carry requiresAuthorization so consumers using
+		// `vscode.lm.selectChatModels({ vendor: 'copilot', id: 'copilot-utility' })`
+		// against a BYOK override still go through model-access authorization.
+		assert.deepStrictEqual(result.info.requiresAuthorization, { label: 'octocat' });
 		// 32_000 - 100 (baseCount) - BaseTokensPerCompletion. Use a strict
 		// upper bound to assert the subtraction happened without re-importing
 		// the constant in the test.
