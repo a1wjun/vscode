@@ -65,15 +65,6 @@ export class ProductionEndpointProvider extends Disposable implements IEndpointP
 			}
 		}));
 
-		// Forward LM model-list changes from non-copilot providers as a model
-		// refresh so consumers re-resolve cached utility-alias endpoints. The
-		// copilot model fetcher's own `onDidModelsRefresh` already covers the
-		// copilot vendor; this handles BYOK overrides whose underlying
-		// provider can refresh / remove models out-of-band.
-		this._register(lm.onDidChangeChatModels(() => {
-			this._logService.trace(`[ProductionEndpointProvider] LM chat models changed; invalidating alias endpoints.`);
-			this._onDidModelsRefresh.fire();
-		}));
 	}
 
 	// NOTE: Keep in sync with `ChatConfiguration.UtilityModel` /

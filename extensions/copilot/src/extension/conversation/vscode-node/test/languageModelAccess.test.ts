@@ -168,7 +168,7 @@ suite('buildUtilityAliasModelInfo', () => {
 	test('clones an existing copilot-provider entry, overriding id/family/selectable/default', () => {
 		const endpoint = makeEndpoint({ model: 'gpt-4o-mini' });
 		const base = makeBaseModelInfo({ id: 'gpt-4o-mini' });
-		const result = buildUtilityAliasModelInfo('copilot-utility-small', endpoint, /* isCopilotProviderEndpoint */ true, [base], /* baseCount */ 50);
+		const result = buildUtilityAliasModelInfo('copilot-utility-small', endpoint, [base], /* baseCount */ 50);
 
 		assert.strictEqual(result.synthesized, false);
 		assert.deepStrictEqual(result.info, {
@@ -180,30 +180,22 @@ suite('buildUtilityAliasModelInfo', () => {
 		});
 	});
 
-	test('synthesizes when the endpoint is not produced by the copilot provider (BYOK override) — id collisions do not clone', () => {
-		// BYOK endpoint whose `model` collides with an existing copilot
-		// model id. Without the explicit boolean guard, this would clone
-		// the wrong (copilot) entry and report incorrect metadata.
+	test('synthesizes when no matching base entry exists, subtracting baseCount and completion reserve', () => {
 		const endpoint = makeEndpoint({
-			model: 'gpt-4o-mini',
-			name: 'BYOK Mini',
+			model: 'unknown-model',
+			name: 'Unknown Model',
 			version: '2025-01-01',
 			modelMaxPromptTokens: 32_000,
 			maxOutputTokens: 1_024,
 			supportsToolCalls: false,
 			supportsVision: true,
 		});
-		const collidingCopilotEntry = makeBaseModelInfo({ id: 'gpt-4o-mini' });
-
-		const result = buildUtilityAliasModelInfo('copilot-utility-small', endpoint, /* isCopilotProviderEndpoint */ false, [collidingCopilotEntry], /* baseCount */ 100);
+		const result = buildUtilityAliasModelInfo('copilot-utility', endpoint, [], /* baseCount */ 100);
 
 		assert.strictEqual(result.synthesized, true);
-		// `BaseTokensPerCompletion` is subtracted along with `baseCount` so
-		// the synthesized entry's `maxInputTokens` matches the convention
-		// used by the regular model entries.
-		assert.strictEqual(result.info.id, 'copilot-utility-small');
-		assert.strictEqual(result.info.name, 'BYOK Mini');
-		assert.strictEqual(result.info.family, 'copilot-utility-small');
+		assert.strictEqual(result.info.id, 'copilot-utility');
+		assert.strictEqual(result.info.name, 'Unknown Model');
+		assert.strictEqual(result.info.family, 'copilot-utility');
 		assert.strictEqual(result.info.version, '2025-01-01');
 		assert.strictEqual(result.info.maxOutputTokens, 1_024);
 		assert.strictEqual(result.info.isUserSelectable, false);
@@ -213,13 +205,5 @@ suite('buildUtilityAliasModelInfo', () => {
 		// upper bound to assert the subtraction happened without re-importing
 		// the constant in the test.
 		assert.ok(result.info.maxInputTokens! < 32_000 - 100, `expected maxInputTokens to subtract baseCount and completion reserve, got ${result.info.maxInputTokens}`);
-	});
-
-	test('synthesizes when no matching base entry exists, even for copilot-provider endpoints', () => {
-		const endpoint = makeEndpoint({ model: 'unknown-model' });
-		const result = buildUtilityAliasModelInfo('copilot-utility', endpoint, /* isCopilotProviderEndpoint */ true, [], /* baseCount */ 0);
-		assert.strictEqual(result.synthesized, true);
-		assert.strictEqual(result.info.id, 'copilot-utility');
-		assert.strictEqual(result.info.family, 'copilot-utility');
 	});
 });

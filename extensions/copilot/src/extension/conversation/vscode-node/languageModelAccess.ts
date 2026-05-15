@@ -163,27 +163,25 @@ function buildConfigurationSchema(endpoint: IChatEndpoint): { configurationSchem
  * Builds the {@link vscode.LanguageModelChatInformation} entry that publishes a
  * utility-family alias (e.g. `copilot-utility-small`) under the copilot vendor.
  *
- * When `isCopilotProviderEndpoint` is `true` and a matching entry exists in
- * {@link models}, that entry is cloned so the alias inherits provider-specific
- * metadata. Otherwise — most commonly because the user configured a BYOK
- * override — a minimal entry is synthesized from the endpoint, and
- * `maxInputTokens` is reduced by both `baseCount` and
- * {@link BaseTokensPerCompletion} to match what the regular model entries
- * report.
+ * If a matching entry exists in {@link models}, that entry is cloned so the
+ * alias inherits provider-specific metadata. Otherwise a minimal entry is
+ * synthesized from the endpoint and `maxInputTokens` is reduced by both
+ * `baseCount` and {@link BaseTokensPerCompletion} to match what the regular
+ * model entries report.
  *
- * Callers must compute `isCopilotProviderEndpoint` (typically via
- * `endpoint instanceof CopilotChatEndpoint`); matching by `endpoint.model`
- * alone would misidentify a BYOK model whose id collides with a copilot model
- * id (e.g. `gpt-4o`).
+ * Callers must only invoke this for endpoints produced by the copilot
+ * provider — id-based matching against {@link models} is otherwise unsafe
+ * (a BYOK model id can collide with a copilot model id, e.g. `gpt-4o`). The
+ * sole production caller (`_registerUtilityAliasModels`) enforces this with
+ * an `endpoint instanceof CopilotChatEndpoint` guard.
  */
 export function buildUtilityAliasModelInfo(
 	family: ChatEndpointFamily,
 	endpoint: IChatEndpoint,
-	isCopilotProviderEndpoint: boolean,
 	models: readonly vscode.LanguageModelChatInformation[],
 	baseCount: number,
 ): { info: vscode.LanguageModelChatInformation; synthesized: boolean } {
-	const base = isCopilotProviderEndpoint ? models.find(m => m.id === endpoint.model) : undefined;
+	const base = models.find(m => m.id === endpoint.model);
 	if (base) {
 		return {
 			synthesized: false,
@@ -431,7 +429,7 @@ export class LanguageModelAccess extends Disposable implements IExtensionContrib
 
 			try {
 				const baseCount = await this._promptBaseCountCache.getBaseCount(endpoint);
-				const aliasInfo = buildUtilityAliasModelInfo(family, endpoint, /* isCopilotProviderEndpoint */ true, models, baseCount);
+				const aliasInfo = buildUtilityAliasModelInfo(family, endpoint, models, baseCount);
 				this._logService.trace(`[LanguageModelAccess] Publishing alias '${family}' -> ${endpoint.model} (${aliasInfo.synthesized ? 'synthesized' : 'cloned'}).`);
 				models.push(aliasInfo.info);
 			} catch (err) {
