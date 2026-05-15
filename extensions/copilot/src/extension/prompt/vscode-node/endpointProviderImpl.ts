@@ -58,6 +58,9 @@ export class ProductionEndpointProvider extends Disposable implements IEndpointP
 		this._register(this._configService.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration(ProductionEndpointProvider.UTILITY_MODEL_CONFIG_KEY) || e.affectsConfiguration(ProductionEndpointProvider.UTILITY_SMALL_MODEL_CONFIG_KEY)) {
 				this._logService.trace(`[ProductionEndpointProvider] Utility model override changed; invalidating alias endpoints.`);
+				// Clear telemetry fingerprints so a re-applied override emits
+				// once for its new value.
+				this._lastOverrideTelemetryFingerprint.clear();
 				this._onDidModelsRefresh.fire();
 			}
 		}));
@@ -74,10 +77,10 @@ export class ProductionEndpointProvider extends Disposable implements IEndpointP
 	private static readonly UTILITY_SMALL_MODEL_CONFIG_KEY = 'chat.utilitySmallModel';
 
 	/**
-	 * Per-family fingerprint of the last override-resolution result we sent
-	 * telemetry for. Used to dedupe so we emit at most once per change to the
-	 * setting (or to the resolution outcome) per family. Format:
-	 * `${raw}|${outcome}|${vendor}|${modelId}`.
+	 * Per-family marker recording that we already emitted a telemetry event
+	 * for the currently-applied override. Used to dedupe so we emit at most
+	 * once per family per override value. Cleared when the relevant setting
+	 * changes.
 	 */
 	private readonly _lastOverrideTelemetryFingerprint = new Map<ChatEndpointFamily, string>();
 
@@ -195,13 +198,18 @@ export class ProductionEndpointProvider extends Disposable implements IEndpointP
 				this._logService.warn(`[ProductionEndpointProvider] Failed to fetch copilot models for ${configKey} override '${raw}'; falling back to default. Error: ${err}`);
 				return undefined;
 			}
-			const modelMetadata = allModels.find(m => m.id === id);
-			if (!modelMetadata) {
+			const matches = allModels.filter(m => m.id === id);
+			if (matches.length === 0) {
 				this._logService.warn(`[ProductionEndpointProvider] No copilot model matched ${configKey} override '${raw}'; falling back to default.`);
 				return undefined;
 			}
-			this._logService.info(`[ProductionEndpointProvider] Applying ${configKey} override: copilot/${modelMetadata.id}`);
-			this._reportOverrideTelemetry(family, raw, 'applied-copilot', vendor, modelMetadata.id);
+			if (matches.length > 1) {
+				this._logService.warn(`[ProductionEndpointProvider] ${configKey} override '${raw}' matched ${matches.length} copilot models; ignoring (override is ambiguous).`);
+				return undefined;
+			}
+			const modelMetadata = matches[0];
+			this._logService.trace(`[ProductionEndpointProvider] Applying ${configKey} override: copilot/${modelMetadata.id}`);
+			this._reportOverrideAppliedTelemetry(family);
 			return this.getOrCreateChatEndpointInstance(modelMetadata);
 		}
 
@@ -212,52 +220,48 @@ export class ProductionEndpointProvider extends Disposable implements IEndpointP
 			this._logService.warn(`[ProductionEndpointProvider] Failed to resolve ${configKey} override '${raw}'; falling back to default. Error: ${err}`);
 			return undefined;
 		}
-		const model = models[0];
-		if (!model) {
+		if (models.length === 0) {
 			this._logService.warn(`[ProductionEndpointProvider] No model matched ${configKey} override '${raw}'; falling back to default.`);
 			return undefined;
 		}
+		if (models.length > 1) {
+			this._logService.warn(`[ProductionEndpointProvider] ${configKey} override '${raw}' matched ${models.length} models; ignoring (override is ambiguous).`);
+			return undefined;
+		}
+		const model = models[0];
 
-		this._logService.info(`[ProductionEndpointProvider] Applying ${configKey} override: ${model.vendor}/${model.id}`);
-		this._reportOverrideTelemetry(family, raw, 'applied-extension', model.vendor, model.id);
+		this._logService.trace(`[ProductionEndpointProvider] Applying ${configKey} override: ${model.vendor}/${model.id}`);
+		this._reportOverrideAppliedTelemetry(family);
 		return this._instantiationService.createInstance(ExtensionContributedChatEndpoint, model);
 	}
 
 	/**
-	 * Emits a telemetry event for utility-model override resolution, but only
-	 * when the (raw setting, outcome, vendor, modelId) tuple changes since the
-	 * last call for the same family. Resolution runs every time the model
-	 * picker rebuilds, so unguarded emission would be very noisy. With
-	 * deduplication we get at most one event per genuine change to the user's
-	 * configuration or to which model the setting resolves to (e.g. the user
-	 * picks a model, the model becomes unavailable, etc.).
+	 * Emits a telemetry event the first time (per family) we successfully
+	 * apply a utility-model override. Resolution runs on every utility-alias
+	 * publish, so unguarded emission would be very noisy; we dedupe so we
+	 * emit at most once per family until the override is changed (which
+	 * clears the cache via {@link _lastOverrideTelemetryFingerprint}).
+	 * Failed/fallback resolutions are intentionally not reported. The event
+	 * carries no vendor or model identifiers — those can be user-provided
+	 * values for BYOK/custom endpoint providers.
 	 */
-	private _reportOverrideTelemetry(family: ChatEndpointFamily, raw: string, outcome: 'applied-copilot' | 'applied-extension', vendor: string, modelId: string): void {
-		const safeVendor = vendor;
-		const safeModelId = modelId;
-		const fingerprint = `${raw}|${outcome}|${safeVendor}|${safeModelId}`;
-		if (this._lastOverrideTelemetryFingerprint.get(family) === fingerprint) {
+	private _reportOverrideAppliedTelemetry(family: ChatEndpointFamily): void {
+		if (this._lastOverrideTelemetryFingerprint.has(family)) {
 			return;
 		}
-		this._lastOverrideTelemetryFingerprint.set(family, fingerprint);
+		this._lastOverrideTelemetryFingerprint.set(family, 'applied');
 
 		/* __GDPR__
 			"chat.utilityModelOverride" : {
 				"owner": "vrbhardw",
-				"comment": "Tracks adoption and resolution outcome of the chat.utilityModel / chat.utilitySmallModel settings, which let users override the language model used for built-in utility flows (titles, summaries, fast tasks). Emitted at most once per change to the setting or its resolved value, per family.",
-				"family": { "classification": "SystemMetaData", "purpose": "FeatureInsight", "comment": "Which utility slot was resolved: 'copilot-utility' or 'copilot-utility-small'." },
-				"outcome": { "classification": "SystemMetaData", "purpose": "FeatureInsight", "comment": "Resolution outcome: 'applied-copilot' (override resolved to a copilot-vendor model), or 'applied-extension' (override resolved to an extension-contributed model)." },
-				"vendor": { "classification": "SystemMetaData", "purpose": "FeatureInsight", "comment": "Vendor id of the resolved model (e.g. 'copilot'." },
-				"modelId": { "classification": "SystemMetaData", "purpose": "FeatureInsight", "comment": "Model id of the resolved model (e.g. 'gpt-4o-mini'." }
+				"comment": "Tracks adoption of the chat.utilityModel / chat.utilitySmallModel settings. Emitted at most once per family per session when the configured override successfully resolves to a model.",
+				"family": { "classification": "SystemMetaData", "purpose": "FeatureInsight", "comment": "Which utility slot was resolved: 'copilot-utility' or 'copilot-utility-small'." }
 			}
 		*/
 		this._telemetryService.sendMSFTTelemetryEvent(
 			'chat.utilityModelOverride',
 			{
 				family,
-				outcome,
-				vendor: safeVendor,
-				modelId: safeModelId,
 			},
 		);
 	}
