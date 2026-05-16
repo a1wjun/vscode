@@ -35,6 +35,7 @@ import { WebSocketClientTransport } from './webSocketClientTransport.js';
 import { AGENT_HOST_LABEL_FORMATTER, AGENT_HOST_SCHEME, agentHostAuthority, normalizeRemoteAgentHostAddress } from '../common/agentHostUri.js';
 import { isDefined } from '../../../base/common/types.js';
 import { PROTOCOL_VERSION } from '../common/state/protocol/version/registry.js';
+import { VSCODE_UPGRADE_METHOD, type IVscodeUpgradeResult } from '../common/state/protocolUpgrade.js';
 
 /** Tracks a single remote connection through its lifecycle. */
 interface IConnectionEntry {
@@ -64,6 +65,12 @@ export class RemoteAgentHostService extends Disposable implements IRemoteAgentHo
 	private static readonly ReconnectInitialDelay = 1000;
 	/** Maximum reconnect delay in milliseconds. */
 	private static readonly ReconnectMaxDelay = 30000;
+	/**
+	 * How long to wait for a server-upgrade trigger to be acknowledged.
+	 * The CLI awaits the binary download synchronously before responding,
+	 * so this needs to accommodate first-time downloads on slow networks.
+	 */
+	private static readonly UpgradeRequestTimeout = 5 * 60 * 1000;
 
 	declare readonly _serviceBrand: undefined;
 
@@ -154,6 +161,30 @@ export class RemoteAgentHostService extends Disposable implements IRemoteAgentHo
 		return this.configuredEntries.find(
 			e => normalizeRemoteAgentHostAddress(getEntryAddress(e)) === normalized
 		);
+	}
+
+	async triggerServerUpgrade(address: string, method: string): Promise<IVscodeUpgradeResult> {
+		const normalized = normalizeRemoteAgentHostAddress(address);
+		const entry = this._entries.get(normalized);
+		if (!entry) {
+			throw new Error(`No remote agent host entry found for ${address}.`);
+		}
+		if (method !== VSCODE_UPGRADE_METHOD) {
+			throw new Error(`Unsupported upgrade method: ${method}.`);
+		}
+		// The protocol client may be in any state: it might have completed
+		// the handshake (Connected) or it might be sitting on an
+		// `incompatible` failure with the transport still open. Either way
+		// we send the upgrade request via the typed extension method; the
+		// server handler allows it pre-`initialize`.
+		const result = await raceTimeout(
+			entry.client.triggerVscodeUpgrade(),
+			RemoteAgentHostService.UpgradeRequestTimeout,
+		);
+		if (result === undefined) {
+			throw new Error(`Server upgrade request timed out after ${RemoteAgentHostService.UpgradeRequestTimeout}ms.`);
+		}
+		return result;
 	}
 
 	reconnect(address: string): void {

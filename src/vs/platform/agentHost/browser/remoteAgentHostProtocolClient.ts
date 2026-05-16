@@ -26,6 +26,7 @@ import { ActionType, type ActionEnvelope, type INotification, type IRootConfigCh
 import { SessionSummary, SessionStatus, ROOT_STATE_URI, StateComponents, type CustomizationRef, type RootState } from '../common/state/sessionState.js';
 import { PROTOCOL_VERSION } from '../common/state/protocol/version/registry.js';
 import { isJsonRpcNotification, isJsonRpcRequest, isJsonRpcResponse, ProtocolError, ReconnectResultType, type ProtocolMessage, type IStateSnapshot } from '../common/state/sessionProtocol.js';
+import { VSCODE_UPGRADE_METHOD, type IVscodeUpgradeResult } from '../common/state/protocolUpgrade.js';
 import { isClientTransport, type IProtocolTransport } from '../common/state/sessionTransport.js';
 import { AhpErrorCodes } from '../common/state/protocol/errors.js';
 import { ContentEncoding, ResourceRequestParams, type CompletionsParams, type CompletionsResult, type CreateTerminalParams, type ResolveSessionConfigResult, type SessionConfigCompletionsResult } from '../common/state/protocol/commands.js';
@@ -83,6 +84,7 @@ function transportLostError(address: string): ProtocolError {
 
 interface IRemoteAgentHostExtensionCommandMap {
 	'shutdown': { params: undefined; result: void };
+	[VSCODE_UPGRADE_METHOD]: { params: Record<string, never>; result: IVscodeUpgradeResult };
 }
 
 /**
@@ -795,6 +797,21 @@ export class RemoteAgentHostProtocolClient extends Disposable implements IAgentC
 
 	async resourceMove(params: CommandMap['resourceMove']['params']): Promise<CommandMap['resourceMove']['result']> {
 		return this._sendRequest('resourceMove', params);
+	}
+
+	/**
+	 * Trigger the CLI-managed upgrade flow for this agent host. Callable
+	 * before {@link connect} has completed — typically used when the host
+	 * has just rejected our `initialize` with an `UnsupportedProtocolVersion`
+	 * error advertising the upgrade method. The transport stays open after
+	 * the rejection, so the extension request rides over it without a
+	 * special out-of-band path.
+	 *
+	 * The result mirrors the CLI's HTTP response: ok flag, whether the
+	 * upgrade is needed / started, running/latest commits.
+	 */
+	triggerVscodeUpgrade(): Promise<IVscodeUpgradeResult> {
+		return this._sendExtensionRequest(VSCODE_UPGRADE_METHOD, {});
 	}
 
 	private _handleMessage(msg: ProtocolMessage): void {

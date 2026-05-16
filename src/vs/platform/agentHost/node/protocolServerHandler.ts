@@ -12,9 +12,11 @@ import { ILogService } from '../../log/common/log.js';
 import { AHPFileSystemProvider } from '../common/agentHostFileSystemProvider.js';
 import { AgentSession, type IAgentService } from '../common/agentService.js';
 import type { CommandMap } from '../common/state/protocol/messages.js';
-import type { UnsupportedProtocolVersionErrorData } from '../common/state/protocol/errors.js';
 import { ActionEnvelope, ActionType, INotification, isSessionAction, isTerminalAction, type SessionAction, type TerminalAction, type IRootConfigChangedAction } from '../common/state/sessionActions.js';
 import { PROTOCOL_VERSION } from '../common/state/protocol/version/registry.js';
+import { negotiateProtocolVersion } from '../common/state/protocol/version/negotiation.js';
+import { VSCODE_UPGRADE_METHOD, VSCODE_UPGRADE_HEARTBEAT_METHOD, VSCODE_UPGRADE_HEARTBEAT_INTERVAL_MS, type UnsupportedProtocolVersionErrorDataEx } from '../common/state/protocolUpgrade.js';
+import { getAgentHostManagementSocketPath, requestAgentHostUpgrade } from './agentHostUpgradeChannel.js';
 import {
 	AHP_AUTH_REQUIRED,
 	AHP_PROVIDER_NOT_FOUND,
@@ -181,6 +183,15 @@ export class ProtocolServerHandler extends Disposable {
 					return;
 				}
 
+				// The VS Code upgrade request rides on the same transport but
+				// is callable pre-`initialize`: by definition we get here when
+				// the client's protocol version was rejected, so the client
+				// never managed to complete the handshake.
+				if ((msg.method as string) === VSCODE_UPGRADE_METHOD) {
+					this._handleVscodeUpgrade(msg.id, transport);
+					return;
+				}
+
 				if (!client) {
 					return;
 				}
@@ -255,12 +266,23 @@ export class ProtocolServerHandler extends Disposable {
 		const offered = Array.isArray(params.protocolVersions) ? params.protocolVersions : [];
 		this._logService.info(`[ProtocolServer] Initialize: clientId=${params.clientId}, protocolVersions=[${offered.join(', ')}]`);
 
-		const negotiated = offered.find(v => v === PROTOCOL_VERSION);
+		const negotiated = negotiateProtocolVersion(offered, PROTOCOL_VERSION);
 		if (!negotiated) {
+			const data: UnsupportedProtocolVersionErrorDataEx = {
+				supportedVersions: [`^${PROTOCOL_VERSION}`],
+				// Only advertise the in-band upgrade method when the agent
+				// host was spawned by a VS Code CLI that is listening for
+				// management requests (presence of the env var). Otherwise
+				// there is no supervisor to actually act on it, so don't
+				// lie to the client.
+				_meta: getAgentHostManagementSocketPath()
+					? { vscodeUpgradeMethod: VSCODE_UPGRADE_METHOD }
+					: undefined,
+			};
 			throw new ProtocolError(
 				AHP_UNSUPPORTED_PROTOCOL_VERSION,
 				`Client offered protocol versions [${offered.join(', ')}], but this server only supports ${PROTOCOL_VERSION}.`,
-				{ supportedVersions: [`^${PROTOCOL_VERSION}`] } satisfies UnsupportedProtocolVersionErrorData,
+				data,
 			);
 		}
 
@@ -308,6 +330,50 @@ export class ProtocolServerHandler extends Disposable {
 				completionTriggerCharacters: this._config.completionTriggerCharacters,
 			},
 		};
+	}
+
+	/**
+	 * Forwards a client's upgrade request to the hosting VS Code CLI's
+	 * HTTP management API (advertised via the {@link VSCODE_AGENT_HOST_MANAGEMENT_SOCKET_ENV}).
+	 * Returns the CLI's parsed response verbatim so the client can render
+	 * a meaningful status (already up-to-date, restart scheduled, etc.).
+	 *
+	 * When the server was not spawned by a managing CLI, responds with
+	 * `MethodNotFound` — the upgrade method is only meaningfully callable
+	 * on CLI-hosted servers.
+	 *
+	 * The CLI synchronously downloads the new server binary inside the
+	 * HTTP request, which can take a long time on slow networks. The
+	 * client's transport watchdog drops the connection after ~20s of
+	 * silence, so we emit a periodic heartbeat notification on the same
+	 * transport while we wait — any inbound message resets the watchdog
+	 * and an unknown notification method is just trace-logged on the
+	 * client side, so this is a safe no-op signal.
+	 */
+	private _handleVscodeUpgrade(id: number, transport: IProtocolTransport): void {
+		const socketPath = getAgentHostManagementSocketPath();
+		if (!socketPath) {
+			transport.send(jsonRpcError(
+				id,
+				JsonRpcErrorCodes.MethodNotFound,
+				`No upgrade supervisor is available for this agent host.`,
+			));
+			return;
+		}
+		const heartbeat = setInterval(() => {
+			transport.send({ jsonrpc: '2.0', method: VSCODE_UPGRADE_HEARTBEAT_METHOD, params: {} });
+		}, VSCODE_UPGRADE_HEARTBEAT_INTERVAL_MS);
+		requestAgentHostUpgrade(socketPath).then(
+			(result) => {
+				clearInterval(heartbeat);
+				transport.send(jsonRpcSuccess(id, result));
+			},
+			(err: unknown) => {
+				clearInterval(heartbeat);
+				this._logService.warn(`[ProtocolServer] vscodeUpgrade signal failed: ${err instanceof Error ? err.message : String(err)}`);
+				transport.send(jsonRpcErrorFrom(id, err));
+			},
+		);
 	}
 
 	private _handleReconnect(

@@ -50,6 +50,7 @@ import { SessionStatus } from '../../../../services/sessions/common/session.js';
 import { remoteAgentHostSessionTypeId } from '../common/remoteAgentHostSessionType.js';
 import { createRemoteAgentCustomizationItemProvider, createRemoteAgentHarnessDescriptor, RemoteAgentPluginController } from './remoteAgentHostCustomizationHarness.js';
 import { RemoteAgentHostSessionsProvider } from './remoteAgentHostSessionsProvider.js';
+import { watchForIncompatibleNotifications } from './remoteHostOptions.js';
 import { SyncedCustomizationBundler } from './syncedCustomizationBundler.js';
 import { ISSHRemoteAgentHostService } from '../../../../../platform/agentHost/common/sshRemoteAgentHost.js';
 import { IAgentHostTerminalService } from '../../../../../workbench/contrib/terminal/browser/agentHostTerminalService.js';
@@ -275,6 +276,7 @@ export class RemoteAgentHostContribution extends Disposable implements IWorkbenc
 			RemoteAgentHostSessionsProvider, { address, name: entry.name });
 		store.add(provider);
 		store.add(this._sessionsProvidersService.registerProvider(provider));
+		store.add(watchForIncompatibleNotifications(provider, this._instantiationService, this._notificationService));
 		this._providerInstances.set(address, provider);
 		store.add(toDisposable(() => this._providerInstances.delete(address)));
 		this._providerStores.set(address, store);
