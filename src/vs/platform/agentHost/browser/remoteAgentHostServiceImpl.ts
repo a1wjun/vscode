@@ -35,7 +35,7 @@ import { WebSocketClientTransport } from './webSocketClientTransport.js';
 import { AGENT_HOST_LABEL_FORMATTER, AGENT_HOST_SCHEME, agentHostAuthority, normalizeRemoteAgentHostAddress } from '../common/agentHostUri.js';
 import { isDefined } from '../../../base/common/types.js';
 import { PROTOCOL_VERSION } from '../common/state/protocol/version/registry.js';
-import { VSCODE_UPGRADE_METHOD, type IVscodeUpgradeResult } from '../common/state/protocolUpgrade.js';
+import { type IVscodeUpgradeResult } from '../common/state/protocolUpgrade.js';
 
 /** Tracks a single remote connection through its lifecycle. */
 interface IConnectionEntry {
@@ -169,16 +169,14 @@ export class RemoteAgentHostService extends Disposable implements IRemoteAgentHo
 		if (!entry) {
 			throw new Error(`No remote agent host entry found for ${address}.`);
 		}
-		if (method !== VSCODE_UPGRADE_METHOD) {
-			throw new Error(`Unsupported upgrade method: ${method}.`);
-		}
 		// The protocol client may be in any state: it might have completed
 		// the handshake (Connected) or it might be sitting on an
 		// `incompatible` failure with the transport still open. Either way
-		// we send the upgrade request via the typed extension method; the
+		// we send the upgrade request as a raw JSON-RPC call using the
+		// method name the host advertised in its `_meta` payload; the
 		// server handler allows it pre-`initialize`.
 		const result = await raceTimeout(
-			entry.client.triggerVscodeUpgrade(),
+			entry.client.triggerVscodeUpgrade(method),
 			RemoteAgentHostService.UpgradeRequestTimeout,
 		);
 		if (result === undefined) {

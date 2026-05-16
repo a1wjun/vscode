@@ -540,12 +540,21 @@ impl AgentHostManager {
 	/// spawned servers via {@link MANAGEMENT_SOCKET_ENV}). Currently
 	/// exposes a single endpoint, `POST /upgrade`, used by the agent host
 	/// server to forward client-initiated upgrade requests.
+	///
+	/// On bind failure, clears {@link management_listener_started} so a
+	/// subsequent {@link ensure_management_listener} call (e.g. from the
+	/// next `start_server`) can retry. Without that, a transient bind
+	/// error (leftover socket, EACCES, etc.) would permanently leave
+	/// spawned servers with `MANAGEMENT_SOCKET_ENV` set but nothing
+	/// listening behind it.
 	async fn run_management_listener(self: Arc<Self>) {
 		let path = &self.management_socket_path;
 		let mut listener = match listen_socket_rw_stream(path).await {
 			Ok(l) => l,
 			Err(e) => {
 				warning!(self.log, "Failed to bind management socket {:?}: {}", path, e);
+				self.management_listener_started
+					.store(false, Ordering::SeqCst);
 				return;
 			}
 		};

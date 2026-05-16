@@ -290,7 +290,7 @@ export class ProtocolServerHandler extends Disposable {
 			};
 			throw new ProtocolError(
 				AHP_UNSUPPORTED_PROTOCOL_VERSION,
-				`Client offered protocol versions [${offered.join(', ')}], but this server only supports ${PROTOCOL_VERSION}.`,
+				`Client offered protocol versions [${offered.join(', ')}], none of which are compatible with this server's version ${PROTOCOL_VERSION} (server accepts ^${PROTOCOL_VERSION}).`,
 				data,
 			);
 		}
