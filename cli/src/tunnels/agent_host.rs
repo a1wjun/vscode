@@ -632,7 +632,7 @@ impl AgentHostManager {
 						running_commit,
 						latest_commit: None,
 						restart_delay_ms: None,
-						error: Some(format!("Failed to check for updates: {}", e)),
+						error: Some(format!("Failed to check for updates: {e}")),
 					},
 				);
 			}
@@ -691,7 +691,7 @@ impl AgentHostManager {
 					running_commit,
 					latest_commit: Some(new_release.commit.clone()),
 					restart_delay_ms: None,
-					error: Some(format!("Failed to download upgrade: {}", e)),
+					error: Some(format!("Failed to download upgrade: {e}")),
 				},
 			);
 		}
