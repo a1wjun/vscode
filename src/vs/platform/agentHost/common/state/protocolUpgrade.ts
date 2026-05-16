@@ -18,22 +18,6 @@ import type { UnsupportedProtocolVersionErrorData } from './protocol/errors.js';
 export const VSCODE_UPGRADE_METHOD = '_vscodeUpgrade' as const;
 
 /**
- * Notification method the server emits periodically while a long-running
- * `_vscodeUpgrade` request is in flight (the CLI synchronously downloads
- * the new server binary, which can exceed the client's transport
- * watchdog timeout). Its sole purpose is to refresh the client-side
- * watchdog — clients ignore the payload.
- */
-export const VSCODE_UPGRADE_HEARTBEAT_METHOD = '_vscodeUpgradeHeartbeat' as const;
-
-/**
- * Interval at which {@link VSCODE_UPGRADE_HEARTBEAT_METHOD} is emitted
- * during a `_vscodeUpgrade` request. Must be comfortably below the
- * client-side watchdog timeout (`WATCHDOG_TIMEOUT_MS`, 20 s).
- */
-export const VSCODE_UPGRADE_HEARTBEAT_INTERVAL_MS = 5_000;
-
-/**
  * Status payload returned by the {@link VSCODE_UPGRADE_METHOD} RPC. The
  * agent host server forwards the CLI's `POST /upgrade` response back to
  * the client unchanged, so the UI can describe what happened (e.g.

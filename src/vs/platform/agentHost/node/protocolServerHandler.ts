@@ -15,7 +15,7 @@ import type { CommandMap } from '../common/state/protocol/messages.js';
 import { ActionEnvelope, ActionType, INotification, isSessionAction, isTerminalAction, type SessionAction, type TerminalAction, type IRootConfigChangedAction } from '../common/state/sessionActions.js';
 import { PROTOCOL_VERSION } from '../common/state/protocol/version/registry.js';
 import { negotiateProtocolVersion } from '../common/state/protocol/version/negotiation.js';
-import { VSCODE_UPGRADE_METHOD, VSCODE_UPGRADE_HEARTBEAT_METHOD, VSCODE_UPGRADE_HEARTBEAT_INTERVAL_MS, type UnsupportedProtocolVersionErrorDataEx } from '../common/state/protocolUpgrade.js';
+import { VSCODE_UPGRADE_METHOD, type UnsupportedProtocolVersionErrorDataEx } from '../common/state/protocolUpgrade.js';
 import { getAgentHostManagementSocketPath, requestAgentHostUpgrade } from './agentHostUpgradeChannel.js';
 import {
 	AHP_AUTH_REQUIRED,
@@ -350,14 +350,6 @@ export class ProtocolServerHandler extends Disposable {
 	 * When the server was not spawned by a managing CLI, responds with
 	 * `MethodNotFound` — the upgrade method is only meaningfully callable
 	 * on CLI-hosted servers.
-	 *
-	 * The CLI synchronously downloads the new server binary inside the
-	 * HTTP request, which can take a long time on slow networks. The
-	 * client's transport watchdog drops the connection after ~20s of
-	 * silence, so we emit a periodic heartbeat notification on the same
-	 * transport while we wait — any inbound message resets the watchdog
-	 * and an unknown notification method is just trace-logged on the
-	 * client side, so this is a safe no-op signal.
 	 */
 	private _handleVscodeUpgrade(id: number, transport: IProtocolTransport): void {
 		const socketPath = getAgentHostManagementSocketPath();
@@ -369,16 +361,9 @@ export class ProtocolServerHandler extends Disposable {
 			));
 			return;
 		}
-		const heartbeat = setInterval(() => {
-			transport.send({ jsonrpc: '2.0', method: VSCODE_UPGRADE_HEARTBEAT_METHOD, params: {} });
-		}, VSCODE_UPGRADE_HEARTBEAT_INTERVAL_MS);
 		requestAgentHostUpgrade(socketPath).then(
-			(result) => {
-				clearInterval(heartbeat);
-				transport.send(jsonRpcSuccess(id, result));
-			},
+			(result) => transport.send(jsonRpcSuccess(id, result)),
 			(err: unknown) => {
-				clearInterval(heartbeat);
 				this._logService.warn(`[ProtocolServer] vscodeUpgrade signal failed: ${err instanceof Error ? err.message : String(err)}`);
 				transport.send(jsonRpcErrorFrom(id, err));
 			},
