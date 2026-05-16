@@ -19,7 +19,7 @@ import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase 
 import { AuthenticationSessionsChangeEvent, IAuthenticationService } from '../../../../../workbench/services/authentication/common/authentication.js';
 import { logTunnelConnectAttempt, logTunnelConnectResolved, TunnelConnectErrorCategory, TunnelConnectFailureReason } from '../../../../common/sessionsTelemetry.js';
 import { ISessionsProvidersService } from '../../../../services/sessions/browser/sessionsProvidersService.js';
-import { IAgentHostFilterService } from '../common/agentHostFilter.js';
+import { IAgentHostFilterService } from '../../../../services/agentHostFilter/common/agentHostFilter.js';
 import { RemoteAgentHostSessionsProvider } from './remoteAgentHostSessionsProvider.js';
 import { watchForIncompatibleNotifications } from './remoteHostOptions.js';
 
@@ -109,6 +109,13 @@ export class TunnelAgentHostContribution extends Disposable implements IWorkbenc
 			this._reconcileProviders();
 			// Stop any reconnect loops for tunnels that no longer exist
 			this._pruneReconnectState();
+		}));
+
+		this._register(this._configurationService.onDidChangeConfiguration(e => {
+			if (e.affectsConfiguration(RemoteAgentHostsEnabledSettingId)) {
+				this._reconcileProviders();
+				this._pruneReconnectState();
+			}
 		}));
 
 		// Re-run discovery when a GitHub session becomes available,
